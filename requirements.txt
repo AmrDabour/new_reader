@@ -1,0 +1,15 @@
+# Document Voice Filler Requirements
+streamlit>=1.28.0
+elevenlabs>=2.1.0
+google-cloud-vision>=3.4.0
+google-cloud-speech>=2.21.0
+google-generativeai>=0.3.0
+python-docx>=0.8.11
+Pillow>=10.0.0
+opencv-python>=4.8.0
+numpy>=1.24.0
+pyaudio>=0.2.11
+wave
+tempfile
+json5
+pytesseract>=0.3.10
