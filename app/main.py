@@ -12,7 +12,7 @@ import logging
 from .services.ocr import detect_text_in_region
 from .services.yolo import YOLOService
 from .services.gpt import GPTService
-from .services.speech import text_to_speech, speech_to_text, SpeechService
+from .services.speech import SpeechService
 from .services.image import create_annotated_image
 from .utils.image import correct_image_orientation, calculate_iou
 from .utils.arabic import is_arabic_text, compare_boxes_rtl
@@ -23,7 +23,8 @@ from .models.schemas import (
     Field,
     TextToSpeechRequest,
     SpeechToTextResponse,
-    AnnotateFormRequest
+    AnnotateFormRequest,
+    TextResponse
 )
 
 # Configure logging
@@ -121,7 +122,7 @@ async def convert_text_to_speech(request: TextToSpeechRequest):
     Convert text to speech using ElevenLabs
     """
     try:
-        audio_bytes = text_to_speech(
+        audio_bytes = speech_service.text_to_speech(
             text=request.text,
             voice_id=request.voice_id,
             language_direction=request.language_direction
@@ -140,9 +141,9 @@ async def convert_speech_to_text(
     """
     try:
         audio_bytes = await audio_file.read()
-        transcript = speech_to_text(audio_bytes, language_code)
+        transcript = speech_service.speech_to_text(audio_bytes, language_code)
         if transcript:
-            processed_transcript = process_transcript(transcript, language_code)
+            processed_transcript = speech_service.process_transcript(transcript, language_code)
             return SpeechToTextResponse(
                 original_transcript=transcript,
                 processed_transcript=processed_transcript
