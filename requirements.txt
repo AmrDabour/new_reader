@@ -9,9 +9,10 @@ arabic-reshaper==3.0.0
 python-bidi==0.4.2
 pytesseract==0.3.10
 langdetect==1.0.9
-elevenlabs==2.5.0
+elevenlabs
 word2number==1.1
 opencv-python-headless==4.9.0.80
 python-dotenv==1.0.1
-pydantic==2.6.1
-pydantic-settings==2.1.0
+pydantic>=2.5.0,<2.6.0
+pydantic-settings>=2.1.0,<2.2.0
+pydantic-core>=2.14.0,<2.15.0

@@ -13,14 +13,15 @@ RUN apt-get update && apt-get install -y \
     python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Upgrade pip
-RUN pip install --no-cache-dir --upgrade pip
+# Upgrade pip and install build tools
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
 # Copy requirements first to leverage Docker cache
 COPY requirements.txt .
 
-# Install Python packages
-RUN pip install --no-cache-dir -r requirements.txt
+# Install Python packages with --no-deps to avoid dependency conflicts
+RUN pip install --no-cache-dir pydantic-core>=2.14.0,<2.15.0 && \
+    pip install --no-cache-dir -r requirements.txt
 
 # Copy the application (including models)
 COPY . .
