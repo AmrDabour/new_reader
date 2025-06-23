@@ -1,8 +1,8 @@
 from elevenlabs.client import ElevenLabs
 from ..config import (
     ELEVENLABS_API_KEY,
-    ENGLISH_VOICE_ID,
-    ARABIC_VOICE_ID,
+    ELEVENLABS_ENGLISH_VOICE_ID,
+    ELEVENLABS_ARABIC_VOICE_ID,
     ARABIC_NUMBER_MAP
 )
 from typing import Optional
@@ -26,9 +26,9 @@ class SpeechService:
             # Determine which voice to use
             if not voice_id:
                 voice_id = (
-                    settings.elevenlabs_arabic_voice_id 
+                    ELEVENLABS_ARABIC_VOICE_ID 
                     if language_direction == "rtl" or is_arabic_text(text)
-                    else settings.elevenlabs_english_voice_id
+                    else ELEVENLABS_ENGLISH_VOICE_ID
                 )
             
             # Generate audio stream
