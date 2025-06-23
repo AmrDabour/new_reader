@@ -6,6 +6,8 @@ services:
     plan: free
     healthCheckPath: /docs
     envVars:
+      - key: PORT
+        value: 10000
       - key: AZURE_OPENAI_API_KEY
         sync: false  # سيتم إضافتها يدوياً في لوحة التحكم
       - key: AZURE_OPENAI_ENDPOINT

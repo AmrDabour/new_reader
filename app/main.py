@@ -5,13 +5,14 @@ import io
 from PIL import Image
 import uuid
 import fitz
-from typing import List, Optional
+from typing import List, Optional, Dict
 import numpy as np
+import logging
 
 from .services.ocr import detect_text_in_region
-from .services.yolo import load_models, detect_fields
-from .services.gpt import get_form_details_from_gpt
-from .services.speech import text_to_speech, speech_to_text
+from .services.yolo import load_models, detect_fields, YOLOService
+from .services.gpt import get_form_details_from_gpt, GPTService
+from .services.speech import text_to_speech, speech_to_text, SpeechService
 from .services.image import create_annotated_image
 from .utils.image import correct_image_orientation, calculate_iou
 from .utils.arabic import is_arabic_text, compare_boxes_rtl
@@ -25,28 +26,52 @@ from .models.schemas import (
     AnnotateFormRequest
 )
 
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 settings = get_settings()
 
 app = FastAPI(
     title="Form Analyzer API",
-    description="API for analyzing and filling forms with support for Arabic and English",
+    description="API for analyzing and filling forms with OCR and GPT support",
     version="1.0.0"
 )
 
-# CORS middleware configuration
+# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, replace with specific origins
+    allow_origins=["*"],  # في البيئة الإنتاجية، يجب تحديد الdomains المسموح بها
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Initialize services
+try:
+    yolo_service = YOLOService()
+    gpt_service = GPTService()
+    speech_service = SpeechService()
+    logger.info("Services initialized successfully")
+except Exception as e:
+    logger.error(f"Error initializing services: {e}")
+    raise
 
 # Load YOLO models at startup
 model1, model2 = load_models(
     boxes_model_path=settings.boxes_model_path,
     dot_line_model_path=settings.dot_line_model_path
 )
+
+@app.get("/")
+async def root():
+    """Root endpoint to check if the API is running"""
+    return {"status": "ok", "message": "Form Analyzer API is running"}
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    return {"status": "healthy"}
 
 @app.post("/analyze-form", response_model=FormAnalysisResponse)
 async def analyze_form(file: UploadFile = File(...)):
