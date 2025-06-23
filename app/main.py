@@ -13,7 +13,7 @@ from .services.ocr import detect_text_in_region
 from .services.yolo import YOLOService
 from .services.gpt import GPTService
 from .services.speech import SpeechService
-from .services.image import create_annotated_image
+from .services.image import ImageService
 from .utils.image import correct_image_orientation, calculate_iou
 from .utils.arabic import is_arabic_text, compare_boxes_rtl
 from .utils.text import process_transcript
@@ -53,6 +53,7 @@ try:
     yolo_service = YOLOService()
     gpt_service = GPTService()
     speech_service = SpeechService()
+    image_service = ImageService()
     logger.info("Services initialized successfully")
 except Exception as e:
     logger.error(f"Error initializing services: {e}")
@@ -100,7 +101,7 @@ async def analyze_form(file: UploadFile = File(...)):
         
         # Create annotated image for GPT
         base_img = image.copy().convert("RGBA")
-        annotated_image = create_annotated_image(base_img, fields)
+        annotated_image = image_service.create_annotated_image(base_img, fields)
         
         # Get form details from GPT
         language_direction = "rtl" if fields and is_arabic_text(fields[0]["label"]) else "ltr"
@@ -159,7 +160,7 @@ async def annotate_form(request: AnnotateFormRequest):
     """
     try:
         # Create annotated image
-        annotated = create_annotated_image(
+        annotated = image_service.create_annotated_image(
             request.image,
             request.texts,
             request.fields
