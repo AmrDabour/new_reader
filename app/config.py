@@ -15,7 +15,7 @@ ELEVENLABS_ENGLISH_VOICE_ID = os.getenv("ELEVENLABS_ENGLISH_VOICE_ID", "1SM7GgM6
 ELEVENLABS_ARABIC_VOICE_ID = os.getenv("ELEVENLABS_ARABIC_VOICE_ID", "1qEiC6qsybMkmnNdVMbK")
 
 # Paths configuration
-BASE_DIR = Path(__file__).resolve().parent.parent
+BASE_DIR = Path(__file__).resolve().parent
 
 # Tesseract path - use environment variable or default based on OS
 TESSERACT_CMD = os.getenv(
