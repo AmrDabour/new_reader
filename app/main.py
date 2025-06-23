@@ -10,7 +10,7 @@ import numpy as np
 import logging
 
 from .services.ocr import detect_text_in_region
-from .services.yolo import load_models, detect_fields, YOLOService
+from .services.yolo import YOLOService
 from .services.gpt import get_form_details_from_gpt, GPTService
 from .services.speech import text_to_speech, speech_to_text, SpeechService
 from .services.image import create_annotated_image
@@ -57,12 +57,6 @@ except Exception as e:
     logger.error(f"Error initializing services: {e}")
     raise
 
-# Load YOLO models at startup
-model1, model2 = load_models(
-    boxes_model_path=settings.boxes_model_path,
-    dot_line_model_path=settings.dot_line_model_path
-)
-
 @app.get("/")
 async def root():
     """Root endpoint to check if the API is running"""
@@ -101,7 +95,7 @@ async def analyze_form(file: UploadFile = File(...)):
         image = correct_image_orientation(image)
         
         # Detect fields using YOLO
-        fields = detect_fields(image, model1, model2)
+        fields = yolo_service.detect_fields(image)
         
         # Create annotated image for GPT
         base_img = image.copy().convert("RGBA")
