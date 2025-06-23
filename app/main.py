@@ -172,7 +172,7 @@ async def annotate_form(request: AnnotateFormRequest):
             annotated.save(img_byte_arr, format='PNG')
             img_byte_arr = img_byte_arr.getvalue()
             
-            return img_byte_arr
+            return StreamingResponse(io.BytesIO(img_byte_arr), media_type="image/png")
         raise HTTPException(status_code=400, detail="Could not annotate image")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

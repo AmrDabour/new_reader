@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Tuple
+from typing import List, Optional, Dict, Tuple, Any
 from PIL.Image import Image
+from pydantic.config import ConfigDict
 
 class Field(BaseModel):
     box_id: str
@@ -35,6 +36,8 @@ class SpeechToTextResponse(BaseModel):
     processed_transcript: str
 
 class AnnotateFormRequest(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    
     image: Image
     texts: Dict[str, str]  # box_id -> text
     fields: List[Field] 
