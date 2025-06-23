@@ -6,6 +6,7 @@ from ..config import BOXES_MODEL_PATH, DOT_LINE_MODEL_PATH
 
 class YOLOService:
     def __init__(self):
+        # Basic model loading without any special configuration
         self.boxes_model = YOLO(BOXES_MODEL_PATH)
         self.dot_line_model = YOLO(DOT_LINE_MODEL_PATH)
     
