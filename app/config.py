@@ -15,7 +15,7 @@ ELEVENLABS_ENGLISH_VOICE_ID = os.getenv("ELEVENLABS_ENGLISH_VOICE_ID", "1SM7GgM6
 ELEVENLABS_ARABIC_VOICE_ID = os.getenv("ELEVENLABS_ARABIC_VOICE_ID", "1qEiC6qsybMkmnNdVMbK")
 
 # Paths configuration
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
+BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Tesseract path - use environment variable or default based on OS
 TESSERACT_CMD = os.getenv(
@@ -23,7 +23,7 @@ TESSERACT_CMD = os.getenv(
     r"C:\Program Files\Tesseract-OCR\tesseract.exe" if os.name == "nt" else "/usr/bin/tesseract"
 )
 
-# YOLO model paths - في البيئة المحلية والإنتاج، الموديلات موجودة في مجلد models
+# YOLO model paths - الموديلات موجودة في app/models
 MODELS_DIR = os.path.join(BASE_DIR, "models")
 BOXES_MODEL_PATH = os.path.join(MODELS_DIR, "boxes.pt")
 DOT_LINE_MODEL_PATH = os.path.join(MODELS_DIR, "dot_line.pt")

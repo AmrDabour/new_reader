@@ -15,14 +15,7 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Create directory for YOLO models
-RUN mkdir -p /app/models
-
-# Copy YOLO models
-COPY boxes.pt /app/models/
-COPY dot_line.pt /app/models/
-
-# Copy the rest of the application
+# Copy the application (including models)
 COPY . .
 
 # Use PORT environment variable with fallback to 8000
