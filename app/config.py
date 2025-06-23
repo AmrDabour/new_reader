@@ -23,8 +23,8 @@ TESSERACT_CMD = os.getenv(
     r"C:\Program Files\Tesseract-OCR\tesseract.exe" if os.name == "nt" else "/usr/bin/tesseract"
 )
 
-# YOLO model paths
-MODELS_DIR = os.getenv("MODELS_DIR", str(BASE_DIR / "models"))
+# YOLO model paths - في البيئة المحلية والإنتاج، الموديلات موجودة في مجلد models
+MODELS_DIR = os.path.join(BASE_DIR, "models")
 BOXES_MODEL_PATH = os.path.join(MODELS_DIR, "boxes.pt")
 DOT_LINE_MODEL_PATH = os.path.join(MODELS_DIR, "dot_line.pt")
 
