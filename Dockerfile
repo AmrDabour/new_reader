@@ -22,14 +22,8 @@ COPY form_analyzer/requirements.txt .
 # Install Python packages with --no-deps to avoid dependency conflicts
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Create models directory
-RUN mkdir -p app/models
-
-# Copy model files first
-COPY boxes.pt dot_line.pt app/models/
-
-# Copy the rest of the application
-COPY form_analyzer/app ./app/
+# Copy the application code (including models)
+COPY form_analyzer/app app/
 
 # Use PORT environment variable with fallback to 10000
 ENV PORT=10000
