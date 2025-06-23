@@ -17,7 +17,7 @@ RUN apt-get update && apt-get install -y \
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
 # Copy requirements first to leverage Docker cache
-COPY requirements.txt .
+COPY form_analyzer/requirements.txt .
 
 # Install Python packages with --no-deps to avoid dependency conflicts
 RUN pip install --no-cache-dir -r requirements.txt
@@ -26,11 +26,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN mkdir -p app/models
 
 # Copy model files first
-COPY boxes.pt app/models/
-COPY dot_line.pt app/models/
+COPY boxes.pt dot_line.pt app/models/
 
 # Copy the rest of the application
-COPY . .
+COPY form_analyzer/app ./app/
 
 # Use PORT environment variable with fallback to 10000
 ENV PORT=10000
