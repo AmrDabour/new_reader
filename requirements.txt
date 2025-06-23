@@ -9,7 +9,7 @@ arabic-reshaper==3.0.0
 python-bidi==0.4.2
 pytesseract==0.3.10
 langdetect==1.0.9
-elevenlabs==0.3.0
+elevenlabs==2.5.0
 word2number==1.1
 opencv-python-headless==4.9.0.80
 python-dotenv==1.0.1
