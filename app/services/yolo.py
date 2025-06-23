@@ -1,6 +1,7 @@
 from ultralytics import YOLO
 from PIL import Image
 import numpy as np
+from typing import List
 from ..config import BOXES_MODEL_PATH, DOT_LINE_MODEL_PATH
 
 class YOLOService:
