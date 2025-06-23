@@ -11,7 +11,7 @@ import logging
 
 from .services.ocr import detect_text_in_region
 from .services.yolo import YOLOService
-from .services.gpt import get_form_details_from_gpt, GPTService
+from .services.gpt import GPTService
 from .services.speech import text_to_speech, speech_to_text, SpeechService
 from .services.image import create_annotated_image
 from .utils.image import correct_image_orientation, calculate_iou
@@ -102,13 +102,14 @@ async def analyze_form(file: UploadFile = File(...)):
         annotated_image = create_annotated_image(base_img, fields)
         
         # Get form details from GPT
-        explanation, gpt_fields = get_form_details_from_gpt(annotated_image)
+        language_direction = "rtl" if fields and is_arabic_text(fields[0]["label"]) else "ltr"
+        explanation, gpt_fields = gpt_service.get_form_details(annotated_image, language_direction)
         
         # Process and return results
         return FormAnalysisResponse(
             fields=fields,
             form_explanation=explanation,
-            language_direction="rtl" if is_arabic_text(explanation) else "ltr"
+            language_direction=language_direction
         )
         
     except Exception as e:
@@ -253,4 +254,7 @@ if __name__ == "__main__":
     import os
     
     port = int(os.getenv("PORT", 10000))
-    uvicorn.run("app.main:app", host="0.0.0.0", port=port, reload=False) 
+    host = "0.0.0.0"
+    
+    print(f"Starting server on {host}:{port}")
+    uvicorn.run("app.main:app", host=host, port=port, reload=False) 

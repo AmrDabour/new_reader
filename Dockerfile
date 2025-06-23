@@ -33,4 +33,5 @@ ENV TESSERACT_CMD=/usr/bin/tesseract
 EXPOSE ${PORT}
 
 # Command to run the application
-CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT} 
+CMD echo "Starting application on port ${PORT}" && \
+    uvicorn app.main:app --host 0.0.0.0 --port ${PORT} 
