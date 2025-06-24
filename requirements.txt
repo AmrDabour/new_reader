@@ -16,3 +16,4 @@ python-dotenv==1.0.1
 pydantic>=2.5.0,<2.6.0
 pydantic-settings>=2.1.0,<2.2.0
 PyMuPDF
+google-generativeai

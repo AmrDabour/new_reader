@@ -3,11 +3,8 @@ from pydantic_settings import BaseSettings
 from functools import lru_cache
 from pathlib import Path
 
-# Azure OpenAI settings
-AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
-AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
-AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15-preview")
-AZURE_OPENAI_DEPLOYMENT_NAME = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4.1")
+# Google AI settings
+GOOGLE_AI_API_KEY = os.getenv("GOOGLE_AI_API_KEY")
 
 # ElevenLabs settings
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
@@ -29,11 +26,8 @@ BOXES_MODEL_PATH = os.path.join(MODELS_DIR, "boxes.pt")
 DOT_LINE_MODEL_PATH = os.path.join(MODELS_DIR, "dot_line.pt")
 
 class Settings(BaseSettings):
-    # Azure OpenAI Settings
-    azure_openai_api_key: str
-    azure_openai_endpoint: str
-    azure_openai_api_version: str
-    azure_openai_deployment_name: str
+    # Google AI Settings
+    google_ai_api_key: str
 
     # ElevenLabs Settings
     elevenlabs_api_key: str

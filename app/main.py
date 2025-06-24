@@ -11,7 +11,7 @@ import logging
 
 from .services.ocr import detect_text_in_region
 from .services.yolo import YOLOService
-from .services.gpt import GPTService
+from .services.gemini import GeminiService
 from .services.speech import SpeechService
 from .services.image import ImageService
 from .utils.image import correct_image_orientation, calculate_iou
@@ -36,7 +36,7 @@ settings = get_settings()
 
 app = FastAPI(
     title="Form Analyzer API",
-    description="API for analyzing and filling forms with OCR and GPT support",
+    description="API for analyzing and filling forms with OCR and Gemini support",
     version="1.0.0"
 )
 
@@ -52,7 +52,7 @@ app.add_middleware(
 # Initialize services
 try:
     yolo_service = YOLOService()
-    gpt_service = GPTService()
+    gemini_service = GeminiService()
     speech_service = SpeechService()
     image_service = ImageService()
     logger.info("Services initialized successfully")
@@ -100,13 +100,13 @@ async def analyze_form(file: UploadFile = File(...)):
         # Detect fields using YOLO
         fields = yolo_service.detect_fields(image)
         
-        # Create annotated image for GPT
+        # Create annotated image for Gemini
         base_img = image.copy().convert("RGBA")
         annotated_image = image_service.create_annotated_image(base_img, fields)
         
-        # Get form details from GPT
+        # Get form details from Gemini
         language_direction = "rtl" if fields and is_arabic_text(fields[0]["label"]) else "ltr"
-        explanation, gpt_fields = gpt_service.get_form_details(annotated_image, language_direction)
+        explanation, gemini_fields = gemini_service.get_form_details(annotated_image, language_direction)
         
         # Process and return results
         return FormAnalysisResponse(

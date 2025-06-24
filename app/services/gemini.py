@@ -1,4 +1,4 @@
-import openai
+import google.generativeai as genai
 import base64
 import io
 from PIL import Image
@@ -8,24 +8,50 @@ import json
 
 settings = get_settings()
 
-class GPTService:
+class GeminiService:
     def __init__(self):
-        self.client = openai.AzureOpenAI(
-            api_key=settings.azure_openai_api_key,
-            api_version=settings.azure_openai_api_version,
-            azure_endpoint=settings.azure_openai_endpoint,
+        genai.configure(api_key=settings.google_ai_api_key)
+        
+        generation_config = {
+            "temperature": 0.0,
+            "max_output_tokens": 2000,
+        }
+        
+        safety_settings = [
+            {
+                "category": "HARM_CATEGORY_HARASSMENT",
+                "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+            },
+            {
+                "category": "HARM_CATEGORY_HATE_SPEECH",
+                "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+            },
+            {
+                "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+            },
+            {
+                "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+                "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+            }
+        ]
+        
+        self.model = genai.GenerativeModel(
+            model_name='gemini-1.5-pro-vision',
+            generation_config=generation_config,
+            safety_settings=safety_settings
         )
 
     def get_form_details(self, image: Image.Image, language: str) -> Tuple[Optional[str], Optional[List[Dict]]]:
         """
-        Makes a single call to GPT-4 to get both the field labels and a general
+        Makes a single call to Gemini to get both the field labels and a general
         explanation of the form.
         """
         try:
-            # Convert image to base64
+            # Convert image to bytes
             buffered = io.BytesIO()
             image.save(buffered, format="PNG")
-            img_str = base64.b64encode(buffered.getvalue()).decode('utf-8')
+            image_bytes = buffered.getvalue()
 
             lang_name = "Arabic" if language == 'rtl' else "English"
 
@@ -47,27 +73,12 @@ Return a single, valid JSON object with the following structure and nothing else
   ]
 }}
 """
-
-            response = self.client.chat.completions.create(
-                model=settings.azure_openai_deployment_name,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt},
-                            {
-                                "type": "image_url",
-                                "image_url": {"url": f"data:image/png;base64,{img_str}"}
-                            }
-                        ]
-                    }
-                ],
-                max_tokens=2000,
-                temperature=0.0,
-                response_format={"type": "json_object"}
+            response = self.model.generate_content(
+                [prompt, image_bytes],
+                stream=False
             )
             
-            result = response.choices[0].message.content
+            result = response.text
             parsed_json = json.loads(result)
             
             explanation = parsed_json.get("explanation")
@@ -79,5 +90,5 @@ Return a single, valid JSON object with the following structure and nothing else
             return None, None
 
         except Exception as e:
-            print(f"Error in GPT service: {e}")
+            print(f"Error in Gemini service: {e}")
             return None, None 
