@@ -24,7 +24,8 @@ from .models.schemas import (
     TextToSpeechRequest,
     SpeechToTextResponse,
     AnnotateFormRequest,
-    TextResponse
+    TextResponse,
+    FormGenerationRequest
 )
 
 # Configure logging
