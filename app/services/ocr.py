@@ -38,3 +38,18 @@ class OCRService:
         # Note: A full implementation would use pytesseract.image_to_osd
         # to detect orientation and then rotate the image accordingly.
         return image
+
+    def detect_language_locally(self, image: Image.Image) -> str | None:
+        """
+        Uses local OCR (Tesseract) and language detection to determine form direction.
+        """
+        try:
+            # Extract text from the entire image to get a language sample
+            extracted_text = pytesseract.image_to_string(image, lang='ara+eng')
+            if not extracted_text.strip():
+                return None # Not enough text to detect
+            # Detect language from the extracted text
+            lang_code = detect(extracted_text)
+            return 'rtl' if lang_code == 'ar' else 'ltr'
+        except (pytesseract.TesseractNotFoundError, LangDetectException, Exception):
+            return None # Return None on any error
