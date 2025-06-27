@@ -1,263 +1,146 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response
 import io
 from PIL import Image
-import uuid
-import fitz
-from typing import List, Optional, Dict
-import numpy as np
-import logging
+import base64
+import json
 
-from .services.ocr import detect_text_in_region
-from .services.yolo import YOLOService
-from .services.gemini import GeminiService
-from .services.speech import SpeechService
-from .services.image import ImageService
-from .utils.image import correct_image_orientation, calculate_iou
-from .utils.arabic import is_arabic_text, compare_boxes_rtl
-from .utils.text import process_transcript
-from .config import get_settings
-from .models.schemas import (
-    FormAnalysisResponse,
-    Field,
-    TextToSpeechRequest,
-    SpeechToTextResponse,
-    AnnotateFormRequest,
-    TextResponse,
-    FormGenerationRequest
-)
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+from form_analyzer.app.services.yolo import YOLOService
+from form_analyzer.app.services.gemini import GeminiService
+from form_analyzer.app.services.speech import SpeechService
+from form_analyzer.app.services.image import ImageService
+from form_analyzer.app.config import get_settings
+from form_analyzer.app.models.schemas import FormAnalysisResponse, TextToSpeechRequest, AnnotateImageRequest
+from form_analyzer.app.utils.text import process_transcript
 
 settings = get_settings()
+app = FastAPI(title="Form Analyzer API")
 
-app = FastAPI(
-    title="Form Analyzer API",
-    description="API for analyzing and filling forms with OCR and Gemini support",
-    version="1.0.0"
-)
-
-# Add CORS middleware
+# CORS Middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # في البيئة الإنتاجية، يجب تحديد الdomains المسموح بها
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # Initialize services
-try:
-    yolo_service = YOLOService()
-    gemini_service = GeminiService()
-    speech_service = SpeechService()
-    image_service = ImageService()
-    logger.info("Services initialized successfully")
-except Exception as e:
-    logger.error(f"Error initializing services: {e}")
-    raise
-
-@app.get("/")
-async def root():
-    """Root endpoint to check if the API is running"""
-    return {"status": "ok", "message": "Form Analyzer API is running"}
-
-@app.get("/health")
-async def health_check():
-    """Health check endpoint"""
-    return {"status": "healthy"}
+yolo_service = YOLOService()
+gemini_service = GeminiService()
+speech_service = SpeechService()
+image_service = ImageService()
 
 @app.post("/analyze-form", response_model=FormAnalysisResponse)
 async def analyze_form(file: UploadFile = File(...)):
     """
-    Analyze a form image or PDF and detect fields
+    Main endpoint to analyze a form from an uploaded file.
+    Now returns field coordinates and image dimensions as well.
     """
     try:
-        contents = await file.read()
+        image = Image.open(io.BytesIO(await file.read())).convert("RGB")
         
-        # Handle PDF files
-        if file.content_type == "application/pdf":
-            pdf_doc = fitz.open(stream=contents, filetype="pdf")
-            if len(pdf_doc) == 0:
-                raise HTTPException(status_code=400, detail="PDF file is empty")
-            
-            # For now, we'll process only the first page
-            page = pdf_doc.load_page(0)
-            pix = page.get_pixmap(dpi=200)
-            img_bytes = pix.tobytes("png")
-            image = Image.open(io.BytesIO(img_bytes)).convert("RGB")
-            pdf_doc.close()
-        else:
-            # Handle image files
-            image = Image.open(io.BytesIO(contents)).convert("RGB")
+        corrected_image = image_service.correct_image_orientation(image)
+        fields_data, lang_direction = yolo_service.detect_fields(corrected_image)
+        if not fields_data:
+            raise HTTPException(status_code=400, detail="No fillable fields detected.")
+
+        gpt_image = image_service.create_annotated_image_for_gpt(corrected_image, fields_data, with_numbers=True)
         
-        # Correct image orientation
-        image = correct_image_orientation(image)
-        
-        # Detect fields using YOLO
-        fields = yolo_service.detect_fields(image)
-        
-        # Create annotated image for Gemini
-        base_img = image.copy().convert("RGBA")
-        annotated_image = image_service.create_annotated_image(base_img, fields)
-        
-        # Get form details from Gemini
-        language_direction = "rtl" if fields and is_arabic_text(fields[0]["label"]) else "ltr"
-        explanation, gemini_fields = gemini_service.get_form_details(annotated_image, language_direction)
-        
-        # Process and return results
+        explanation, gpt_fields_raw = gemini_service.get_form_details(gpt_image, lang_direction)
+        if not gpt_fields_raw:
+            raise HTTPException(status_code=500, detail="AI model failed to extract form details.")
+
+        gpt_fields = [field for field in gpt_fields_raw if field.get("valid", False)]
+        final_fields = image_service.combine_yolo_and_gpt_results(fields_data, gpt_fields)
+
+        ui_image = image_service.create_annotated_image_for_gpt(corrected_image, fields_data, with_numbers=True)
+        buffered = io.BytesIO()
+        ui_image.save(buffered, format="PNG")
+        img_b64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+
         return FormAnalysisResponse(
-            fields=fields,
+            fields=final_fields,
             form_explanation=explanation,
-            language_direction=language_direction
+            language_direction=lang_direction,
+            annotated_image=img_b64,
+            image_width=corrected_image.width,
+            image_height=corrected_image.height
         )
-        
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"An unexpected error occurred in analyze_form: {e}")
+        raise HTTPException(status_code=500, detail=f"An internal error occurred: {e}")
 
 @app.post("/text-to-speech")
 async def convert_text_to_speech(request: TextToSpeechRequest):
     """
-    Convert text to speech using ElevenLabs
+    Convert text to speech using the selected provider (Gemini).
     """
-    try:
-        audio_bytes = speech_service.text_to_speech(
-            text=request.text,
-            voice_id=request.voice_id,
-            language_direction=request.language_direction
+    audio_bytes, mime_type = speech_service.text_to_speech(request.text, request.provider)
+    
+    if audio_bytes == "QUOTA_EXCEEDED":
+        raise HTTPException(
+            status_code=429,
+            detail="لقد تجاوزت حد الاستخدام المجاني لـ Gemini TTS. يرجى التحقق من خطتك والفوترة. (Quota exceeded for Gemini TTS.)"
         )
-        return audio_bytes
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    
+    if not audio_bytes:
+        raise HTTPException(status_code=500, detail="Failed to generate audio.")
+    
+    return Response(content=audio_bytes, media_type=mime_type)
 
-@app.post("/speech-to-text", response_model=SpeechToTextResponse)
-async def convert_speech_to_text(
-    audio_file: UploadFile = File(...),
-    language_code: str = "en"
-):
+@app.post("/speech-to-text")
+async def convert_speech_to_text(file: UploadFile = File(...), language_code: str = "en"):
     """
-    Convert speech to text using ElevenLabs
-    """
-    try:
-        audio_bytes = await audio_file.read()
-        transcript = speech_service.speech_to_text(audio_bytes, language_code)
-        if transcript:
-            processed_transcript = speech_service.process_transcript(transcript, language_code)
-            return SpeechToTextResponse(
-                original_transcript=transcript,
-                processed_transcript=processed_transcript
-            )
-        raise HTTPException(status_code=400, detail="Could not transcribe audio")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/annotate-form")
-async def annotate_form(request: AnnotateFormRequest):
-    """
-    Draw text and checkmarks on form image
-    """
-    try:
-        # Create annotated image
-        annotated = image_service.create_annotated_image(
-            request.image,
-            request.texts,
-            request.fields
-        )
-        
-        if annotated:
-            # Convert to bytes
-            img_byte_arr = io.BytesIO()
-            annotated.save(img_byte_arr, format='PNG')
-            img_byte_arr = img_byte_arr.getvalue()
-            
-            return StreamingResponse(io.BytesIO(img_byte_arr), media_type="image/png")
-        raise HTTPException(status_code=400, detail="Could not annotate image")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/api/process-audio", response_model=TextResponse)
-async def process_audio(file: UploadFile, language_code: str = 'en'):
-    """
-    Process audio file and return transcribed text
+    Converts speech from an audio file to text using Gemini, forcing a specific language,
+    and processes the transcript to convert number words to digits.
     """
     try:
         audio_bytes = await file.read()
-        transcript = speech_service.speech_to_text(audio_bytes, language_code)
-        if transcript:
-            processed = speech_service.process_transcript(transcript, language_code)
-            return TextResponse(text=processed)
-        raise HTTPException(status_code=400, detail="Could not process audio")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/api/text-to-speech")
-async def text_to_speech(text: str, is_arabic: bool = False):
-    """
-    Convert text to speech and return audio file
-    """
-    try:
-        audio_bytes = speech_service.text_to_speech(text, is_arabic)
-        if audio_bytes:
-            return StreamingResponse(
-                io.BytesIO(audio_bytes),
-                media_type="audio/mpeg"
+        raw_transcript = speech_service.speech_to_text(audio_bytes, language_code=language_code)
+        
+        if raw_transcript == "QUOTA_EXCEEDED":
+            raise HTTPException(
+                status_code=429, 
+                detail="لقد تجاوزت حد الاستخدام المجاني لـ Gemini. يرجى التحقق من خطتك والفوترة. (Quota exceeded for Gemini API.)"
             )
-        raise HTTPException(status_code=400, detail="Could not generate audio")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/generate-form")
-async def generate_form(
-    original_image: UploadFile,
-    request: FormGenerationRequest,
-    output_format: str = "pdf"
-):
+        if raw_transcript is None:
+            raise HTTPException(status_code=500, detail="STT service failed to transcribe audio.")
+        
+        processed_transcript = process_transcript(raw_transcript, lang=language_code)
+        
+        return {"text": processed_transcript}
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        print(f"An unexpected error occurred in speech_to_text: {e}")
+        raise HTTPException(status_code=500, detail=f"An internal error occurred: {str(e)}")
+
+@app.post("/annotate-image")
+async def annotate_image_endpoint(request: AnnotateImageRequest):
     """
-    Generate filled form and return as PDF or PNG
+    Receives the original image and user data, draws the data onto the
+    image, and returns the final annotated image.
     """
     try:
-        image_bytes = await original_image.read()
-        image = Image.open(io.BytesIO(image_bytes))
+        image_bytes = base64.b64decode(request.original_image_b64)
+        original_image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         
-        annotated = image_service.create_annotated_image(
-            image,
-            request.texts,
-            request.ui_fields
+        final_image = image_service.create_final_annotated_image(
+            image=original_image,
+            texts_dict=request.texts_dict,
+            ui_fields=request.ui_fields
         )
         
-        if not annotated:
-            raise HTTPException(status_code=400, detail="Could not generate form")
+        buffered = io.BytesIO()
+        final_image.save(buffered, format="PNG")
+        img_bytes = buffered.getvalue()
         
-        # Prepare output
-        output = io.BytesIO()
-        if output_format == "pdf":
-            annotated.convert('RGB').save(output, format='PDF')
-            media_type = "application/pdf"
-            filename = "filled_form.pdf"
-        else:
-            annotated.save(output, format='PNG')
-            media_type = "image/png"
-            filename = "filled_form.png"
-        
-        output.seek(0)
-        return StreamingResponse(
-            output,
-            media_type=media_type,
-            headers={"Content-Disposition": f"attachment; filename={filename}"}
-        )
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return Response(content=img_bytes, media_type="image/png")
 
-if __name__ == "__main__":
-    import uvicorn
-    import os
-    
-    port = int(os.getenv("PORT", 10000))
-    host = "0.0.0.0"
-    
-    print(f"Starting server on {host}:{port}")
-    uvicorn.run("app.main:app", host=host, port=port, reload=False) 
+    except Exception as e:
+        print(f"An unexpected error occurred in annotate_image: {e}")
+        raise HTTPException(status_code=500, detail=f"An internal error occurred: {str(e)}") 

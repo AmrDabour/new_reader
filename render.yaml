@@ -1,19 +1,39 @@
 services:
+  # Backend Service (FastAPI with Docker)
   - type: web
     name: form-analyzer-api
     env: docker
-    region: frankfurt  # أقرب منطقة للشرق الأوسط
+    region: frankfurt
     plan: free
+    # Set the root directory for the build context
+    repoRoot: ./form_analyzer
+    # The Dockerfile path is relative to the repoRoot
+    dockerfilePath: ./Dockerfile
+    # Use the /docs endpoint for a reliable health check on FastAPI
     healthCheckPath: /docs
-    dockerCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
-      - key: PORT
-        value: 10000
+      # Render provides the PORT env var automatically. Uvicorn uses it.
       - key: GOOGLE_AI_API_KEY
-        sync: false  # سيتم إضافتها يدوياً في لوحة التحكم
-      - key: ELEVENLABS_API_KEY
-        sync: false
-      - key: ELEVENLABS_ENGLISH_VOICE_ID
-        value: 1SM7GgM6IMuvQlz2BwM3
-      - key: ELEVENLABS_ARABIC_VOICE_ID
-        value: 1qEiC6qsybMkmnNdVMbK 
+        fromSecret: true
+
+  # Frontend Service (Streamlit)
+  - type: web
+    name: form-analyzer-ui
+    env: python
+    region: frankfurt
+    plan: free
+    # Set the root directory for the build context
+    repoRoot: ./form_analyzer
+    # The build/start commands are relative to the repoRoot
+    buildCommand: "pip install -r ./requirements.txt"
+    startCommand: "streamlit run ./ui.py"
+    envVars:
+      - key: STREAMLIT_SERVER_PORT
+        value: "10000"
+      # The UI needs to know the URL of the API it should talk to.
+      # Render injects this automatically.
+      - key: API_BASE_URL
+        fromService:
+          type: web
+          name: form-analyzer-api
+          property: url 

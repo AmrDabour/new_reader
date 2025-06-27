@@ -1,116 +1,86 @@
-from elevenlabs.client import ElevenLabs
-from ..config import (
-    ELEVENLABS_API_KEY,
-    ELEVENLABS_ENGLISH_VOICE_ID,
-    ELEVENLABS_ARABIC_VOICE_ID,
-    ARABIC_NUMBER_MAP
-)
-from typing import Optional
-import requests
-from word2number import w2n
-from ..config import get_settings
-from ..utils.arabic import is_arabic_text
+import google.generativeai as genai
+from google.api_core import exceptions as google_exceptions
+from form_analyzer.app.config import get_settings
+import io
+import wave
 
 settings = get_settings()
 
 class SpeechService:
     def __init__(self):
-        self.client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
-        self.is_available = True
-
-    def text_to_speech(self, text: str, voice_id: Optional[str] = None, language_direction: str = "ltr") -> Optional[bytes]:
-        """
-        Convert text to speech using ElevenLabs
-        """
+        """Initializes separate Gemini models for multimodal and TTS tasks."""
         try:
-            # Determine which voice to use
-            if not voice_id:
-                voice_id = (
-                    ELEVENLABS_ARABIC_VOICE_ID 
-                    if language_direction == "rtl" or is_arabic_text(text)
-                    else ELEVENLABS_ENGLISH_VOICE_ID
-                )
-            
-            # Generate audio stream
-            audio_stream = self.client.text_to_speech.stream(
-                text=text,
-                voice_id=voice_id,
-                model_id="eleven_multilingual_v2"
+            genai.configure(api_key=settings.gemini_api_key)
+            self.multimodal_model = genai.GenerativeModel("gemini-2.5-flash")
+            # User has switched back to this model, so we support it.
+            self.tts_model = genai.GenerativeModel("gemini-2.5-flash-preview-tts")
+            self.is_available = True
+        except Exception as e:
+            self.multimodal_model = None
+            self.tts_model = None
+            self.is_available = False
+            print(f"Fatal: Could not initialize Gemini models for speech: {e}")
+
+    def text_to_speech(self, text: str, provider: str = "gemini"):
+        """Converts text to speech using the gemini-2.5-flash-preview-tts model."""
+        if provider != "gemini" or not self.is_available or not self.tts_model or not text:
+            return None, None
+        
+        try:
+            # This model requires a specific 'response_modalities' configuration
+            # and returns raw PCM audio that needs to be wrapped in a WAV file.
+            is_arabic = any('\u0600' <= char <= '\u06FF' for char in text)
+            voice_name = "Sulafat" if is_arabic else "Kore"
+
+            response = self.tts_model.generate_content(
+                f"Read this: {text}",
+                generation_config={
+                   "response_modalities": ["AUDIO"],
+                   "speech_config": {
+                      "voice_config": {
+                         "prebuilt_voice_config": { "voice_name": voice_name }
+                      }
+                   }
+                }
             )
+            audio_data = response.candidates[0].content.parts[0].inline_data.data
 
-            # Get audio bytes from the generator
-            return b"".join(chunk for chunk in audio_stream)
-
+            # Wrap raw PCM data in a WAV container
+            wav_buffer = io.BytesIO()
+            with wave.open(wav_buffer, 'wb') as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)
+                wf.setframerate(24000)
+                wf.writeframes(audio_data)
+            
+            return wav_buffer.getvalue(), "audio/wav"
+        except google_exceptions.ResourceExhausted as e:
+            print(f"Gemini API Quota Exceeded for TTS: {e}")
+            return "QUOTA_EXCEEDED", "error"
         except Exception as e:
-            print(f"Error in text-to-speech service: {e}")
+            print(f"Gemini Text-to-Speech Error: {e}")
+            return None, None
+
+    def speech_to_text(self, audio_bytes: bytes, language_code: str = 'en'):
+        """
+        Converts audio to text, forcing transcription in the specified language.
+        """
+        if not self.is_available or not self.multimodal_model or not audio_bytes:
             return None
 
-    def speech_to_text(self, audio_bytes: bytes, language_code: str = 'en') -> Optional[str]:
-        """
-        Convert audio to text using ElevenLabs
-        """
         try:
-            url = "https://api.elevenlabs.io/v1/speech-to-text"
-            headers = {
-                "xi-api-key": ELEVENLABS_API_KEY
-            }
-            files = {
-                'file': ('audio.wav', audio_bytes, 'audio/wav')
-            }
-            data = {
-                "model_id": "scribe_v1",
-                "language_code": language_code,
-                "tag_audio_events": False,
-                "temperature": 0.0
-            }
-
-            response = requests.post(url, headers=headers, files=files, data=data)
-            response.raise_for_status()
-            result = response.json()
-            return result.get("text", "")
-
+            audio_part = {"mime_type": "audio/wav", "data": audio_bytes}
+            
+            # This prompt now forces the model to interpret the audio in a specific language.
+            lang_name = "Arabic" if language_code == 'ar' else "English"
+            prompt = f"You are a highly accurate audio transcription service. You must transcribe the following audio recording in {lang_name}. Ignore all non-speech sounds like [noise] or [music] and provide only the clean text of the spoken words."
+            
+            response = self.multimodal_model.generate_content([prompt, audio_part])
+            return response.text.strip()
+            
+        except google_exceptions.ResourceExhausted as e:
+            print(f"Gemini API Quota Exceeded: {e}")
+            return "QUOTA_EXCEEDED"
         except Exception as e:
-            print(f"Error in speech-to-text service: {e}")
-            return None
-
-    def process_transcript(self, text: str, lang: str) -> str:
-        """
-        Process transcript by converting number words to digits
-        """
-        # Strip punctuation and whitespace
-        processed_text = text.strip(".,;:\"'")
-        
-        # Convert number words to digits
-        words = processed_text.split()
-        
-        if lang == 'en':
-            try:
-                return str(w2n.word_to_num(processed_text))
-            except ValueError:
-                converted_words = []
-                for word in words:
-                    try:
-                        converted_words.append(str(w2n.word_to_num(word)))
-                    except ValueError:
-                        converted_words.append(word)
-                return " ".join(converted_words)
-        
-        elif lang == 'ar':
-            converted_words = []
-            for word in words:
-                converted_words.append(ARABIC_NUMBER_MAP.get(word, word))
-            
-            # Join adjacent digits
-            final_text = []
-            for i, word in enumerate(converted_words):
-                is_digit = word.isdigit()
-                is_prev_digit = (i > 0 and converted_words[i-1].isdigit())
-                
-                if is_digit and is_prev_digit:
-                    final_text[-1] += word
-                else:
-                    final_text.append(word)
-            
-            return " ".join(final_text)
-        
-        return " ".join(words) 
+            print(f"Gemini Speech-to-Text Error: {e}")
+            return None 
