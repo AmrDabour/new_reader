@@ -3,7 +3,6 @@ from google.api_core import exceptions as google_exceptions
 from app.config import get_settings
 import io
 import wave
-from elevenlabs.client import ElevenLabs
 import os
 from pathlib import Path
 
