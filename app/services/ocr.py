@@ -1,7 +1,9 @@
 import pytesseract
 from PIL import Image
 from langdetect import detect, LangDetectException
-from form_analyzer.app.config import TESSERACT_CMD
+from app.config import TESSERACT_CMD
+import cv2
+import numpy as np
 
 class OCRService:
     def __init__(self):

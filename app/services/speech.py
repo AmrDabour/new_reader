@@ -1,8 +1,11 @@
 import google.generativeai as genai
 from google.api_core import exceptions as google_exceptions
-from form_analyzer.app.config import get_settings
+from app.config import get_settings
 import io
 import wave
+from elevenlabs.client import ElevenLabs
+import os
+from pathlib import Path
 
 settings = get_settings()
 

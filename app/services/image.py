@@ -1,5 +1,5 @@
 from PIL import Image, ImageDraw, ImageFont
-from form_analyzer.app.utils.arabic import is_arabic_text
+from app.utils.arabic import is_arabic_text
 from bidi.algorithm import get_display
 import arabic_reshaper
 import cv2

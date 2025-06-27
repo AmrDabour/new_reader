@@ -1,5 +1,5 @@
+from app.config import GEMINI_API_KEY
 import google.generativeai as genai
-from form_analyzer.app.config import GEMINI_API_KEY
 from PIL import Image
 import base64
 import io

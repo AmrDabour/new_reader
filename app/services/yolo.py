@@ -1,9 +1,9 @@
 from ultralytics import YOLO
 import numpy as np
-from form_analyzer.app.config import BOXES_MODEL_PATH, DOT_LINE_MODEL_PATH
-from form_analyzer.app.services.ocr import OCRService
-from form_analyzer.app.utils.image_helpers import calculate_iou
-from form_analyzer.app.utils.arabic import compare_boxes
+from app.config import BOXES_MODEL_PATH, DOT_LINE_MODEL_PATH
+from app.services.ocr import OCRService
+from app.utils.image_helpers import calculate_iou
+from app.utils.arabic import compare_boxes
 import functools
 from PIL import Image
 
