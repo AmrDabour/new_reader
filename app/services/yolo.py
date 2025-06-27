@@ -1,4 +1,5 @@
 from ultralytics import YOLO
+import numpy as np
 from app.config import get_settings
 from app.services.ocr import OCRService
 from app.utils.image_helpers import calculate_iou

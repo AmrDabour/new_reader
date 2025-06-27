@@ -19,10 +19,16 @@ def process_transcript(text: str, lang: str) -> str:
     
     if lang == 'en':
         try:
+            # First, try to convert the whole string
             return str(w2n.word_to_num(processed_text))
         except ValueError:
-            # Handle cases where not all words are numbers
-            converted_words = [str(w2n.word_to_num(w)) if w in w2n.W2N.number_system else w for w in words]
+            # If that fails, try converting word by word
+            converted_words = []
+            for word in words:
+                try:
+                    converted_words.append(str(w2n.word_to_num(word)))
+                except ValueError:
+                    converted_words.append(word)
             return " ".join(converted_words)
     
     elif lang == 'ar':
