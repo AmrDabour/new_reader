@@ -1,17 +1,16 @@
-from app.config import GEMINI_API_KEY
+from app.config import get_settings
 import google.generativeai as genai
 from PIL import Image
 import base64
 import io
 import json
 
+settings = get_settings()
+genai.configure(api_key=settings.google_ai_api_key)
+
 class GeminiService:
     def __init__(self):
-        try:
-            genai.configure(api_key=GEMINI_API_KEY)
-            self.model = genai.GenerativeModel('gemini-2.5-flash')
-        except Exception as e:
-            raise RuntimeError(f"Failed to initialize Gemini model: {e}")
+        self.model = genai.GenerativeModel('gemini-1.5-flash')
 
     def get_form_details(self, image: Image.Image, language: str):
         """

@@ -1,16 +1,17 @@
 from ultralytics import YOLO
-import numpy as np
-from app.config import BOXES_MODEL_PATH, DOT_LINE_MODEL_PATH
+from app.config import get_settings
 from app.services.ocr import OCRService
 from app.utils.image_helpers import calculate_iou
 from app.utils.arabic import compare_boxes
 import functools
 from PIL import Image
 
+settings = get_settings()
+
 class YOLOService:
     def __init__(self):
-        self.boxes_model = YOLO(BOXES_MODEL_PATH)
-        self.dot_line_model = YOLO(DOT_LINE_MODEL_PATH)
+        self.boxes_model = YOLO(settings.boxes_model_path)
+        self.dot_line_model = YOLO(settings.dot_line_model_path)
         self.ocr_service = OCRService()
 
     def detect_fields(self, image: Image.Image):
