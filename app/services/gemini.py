@@ -17,11 +17,14 @@ class GeminiService:
         Makes a single call to Gemini to get both the field labels and a general
         explanation of the form.
         """
+        print("Starting Gemini form analysis...")
         buffered = io.BytesIO()
         image.save(buffered, format="PNG")
         img_str = base64.b64encode(buffered.getvalue()).decode('utf-8')
+        print("Image converted to base64 string.")
 
         lang_name = "Arabic" if language == 'rtl' else "English"
+        print(f"Using language: {lang_name}")
         
         # --- Language-Specific Prompts ---
         if language == 'rtl':
@@ -83,6 +86,7 @@ class GeminiService:
     ```"""
 
         try:
+            print("Calling Gemini API...")
             image_part = {"mime_type": "image/png", "data": img_str}
             response = self.model.generate_content(
                 [prompt, image_part],
@@ -95,6 +99,7 @@ class GeminiService:
                 ),
                 stream=False
             )
+            print("Received response from Gemini API.")
             
             if not response.candidates or response.candidates[0].finish_reason.name != "STOP":
                 finish_reason_name = response.candidates[0].finish_reason.name if response.candidates else "NO_CANDIDATES"
@@ -105,6 +110,7 @@ class GeminiService:
                     print(f"Prompt Feedback: {response.prompt_feedback}")
                 return None, None
 
+            print("Processing Gemini response...")
             response_text = response.text.strip().replace("```json", "").replace("```", "").strip()
             
             parsed_json = json.loads(response_text)
@@ -112,7 +118,9 @@ class GeminiService:
             fields = parsed_json.get("fields")
 
             if isinstance(fields, list) and explanation:
+                print("Successfully extracted form details from Gemini response.")
                 return explanation, fields
+            print("Failed to extract valid form details from Gemini response.")
             return None, None
 
         except (json.JSONDecodeError, Exception) as e:

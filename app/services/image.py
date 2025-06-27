@@ -32,11 +32,13 @@ class ImageService:
         """
         Draws numbered boxes on the image for analysis by the AI model.
         """
+        print("Starting to create annotated image for GPT...")
         base_img = image.copy().convert("RGBA")
         overlay = Image.new("RGBA", base_img.size, (255, 255, 255, 0))
         draw = ImageDraw.Draw(overlay)
 
         sorted_boxes = [f['box'] for f in fields_data]
+        print(f"Processing {len(sorted_boxes)} boxes...")
         
         for i, (x, y, w_box, h_box) in enumerate(sorted_boxes):
             draw.rectangle([x, y, x + w_box, y + h_box], fill=(0, 100, 255, 100))
@@ -61,6 +63,7 @@ class ImageService:
                 text_y = y + (h_box - text_h) / 2
                 draw.text((text_x, text_y), text, fill="red", font=font)
 
+        print("Finished creating annotated image for GPT.")
         return Image.alpha_composite(base_img, overlay)
 
     def create_final_annotated_image(self, image: Image.Image, texts_dict: dict, ui_fields: list):
