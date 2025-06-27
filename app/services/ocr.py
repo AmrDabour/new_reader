@@ -1,9 +1,12 @@
 import pytesseract
 from PIL import Image
 from langdetect import detect, LangDetectException
-from app.config import TESSERACT_CMD
+from app.config import get_settings
 import cv2
 import numpy as np
+
+settings = get_settings()
+pytesseract.pytesseract.tesseract_cmd = settings.tesseract_cmd
 
 class OCRService:
     def __init__(self):
