@@ -12,9 +12,9 @@ class SpeechService:
     def __init__(self):
         """Initializes separate Gemini models for multimodal and TTS tasks."""
         try:
-            genai.configure(api_key=settings.gemini_api_key)
+            # Configure genai with the key from settings
+            genai.configure(api_key=settings.google_ai_api_key)
             self.multimodal_model = genai.GenerativeModel("gemini-2.5-flash")
-            # User has switched back to this model, so we support it.
             self.tts_model = genai.GenerativeModel("gemini-2.5-flash-preview-tts")
             self.is_available = True
         except Exception as e:
@@ -29,8 +29,6 @@ class SpeechService:
             return None, None
         
         try:
-            # This model requires a specific 'response_modalities' configuration
-            # and returns raw PCM audio that needs to be wrapped in a WAV file.
             is_arabic = any('\u0600' <= char <= '\u06FF' for char in text)
             voice_name = "Sulafat" if is_arabic else "Kore"
 
@@ -47,7 +45,6 @@ class SpeechService:
             )
             audio_data = response.candidates[0].content.parts[0].inline_data.data
 
-            # Wrap raw PCM data in a WAV container
             wav_buffer = io.BytesIO()
             with wave.open(wav_buffer, 'wb') as wf:
                 wf.setnchannels(1)
@@ -73,7 +70,6 @@ class SpeechService:
         try:
             audio_part = {"mime_type": "audio/wav", "data": audio_bytes}
             
-            # This prompt now forces the model to interpret the audio in a specific language.
             lang_name = "Arabic" if language_code == 'ar' else "English"
             prompt = f"You are a highly accurate audio transcription service. You must transcribe the following audio recording in {lang_name}. Ignore all non-speech sounds like [noise] or [music] and provide only the clean text of the spoken words."
             

@@ -84,7 +84,7 @@ async def convert_text_to_speech(request: TextToSpeechRequest):
     if audio_bytes == "QUOTA_EXCEEDED":
         raise HTTPException(
             status_code=429,
-            detail="لقد تجاوزت حد الاستخدام المجاني لـ Gemini TTS. يرجى التحقق من خطتك والفوترة. (Quota exceeded for Gemini TTS.)"
+            detail="Quota exceeded for Gemini TTS."
         )
     
     if not audio_bytes:
@@ -95,8 +95,7 @@ async def convert_text_to_speech(request: TextToSpeechRequest):
 @app.post("/speech-to-text")
 async def convert_speech_to_text(file: UploadFile = File(...), language_code: str = "en"):
     """
-    Converts speech from an audio file to text using Gemini, forcing a specific language,
-    and processes the transcript to convert number words to digits.
+    Converts speech from an audio file to text using Gemini.
     """
     try:
         audio_bytes = await file.read()
@@ -105,7 +104,7 @@ async def convert_speech_to_text(file: UploadFile = File(...), language_code: st
         if raw_transcript == "QUOTA_EXCEEDED":
             raise HTTPException(
                 status_code=429, 
-                detail="لقد تجاوزت حد الاستخدام المجاني لـ Gemini. يرجى التحقق من خطتك والفوترة. (Quota exceeded for Gemini API.)"
+                detail="Quota exceeded for Gemini API."
             )
 
         if raw_transcript is None:
@@ -114,10 +113,7 @@ async def convert_speech_to_text(file: UploadFile = File(...), language_code: st
         processed_transcript = process_transcript(raw_transcript, lang=language_code)
         
         return {"text": processed_transcript}
-    except HTTPException as e:
-        raise e
     except Exception as e:
-        print(f"An unexpected error occurred in speech_to_text: {e}")
         raise HTTPException(status_code=500, detail=f"An internal error occurred: {str(e)}")
 
 @app.post("/annotate-image")
