@@ -7,9 +7,6 @@ WORKDIR /app
 # Set environment variable to avoid interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Pre-accept the Microsoft fonts license
-RUN echo "ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true" | debconf-set-selections
-
 # Install system dependencies and fonts in steps
 RUN apt-get update && apt-get install -y \
     tesseract-ocr \
@@ -24,10 +21,9 @@ RUN apt-get update && apt-get install -y \
     wget \
     curl \
     fontconfig \
-    debconf-utils \
     && apt-get clean
 
-# Install fonts separately to better handle any issues
+# Install fonts (removed problematic ttf-mscorefonts-installer)
 RUN apt-get install -y \
     fonts-dejavu-core \
     fonts-dejavu-extra \
@@ -35,10 +31,8 @@ RUN apt-get install -y \
     fonts-noto-core \
     fonts-noto-cjk \
     fonts-noto-color-emoji \
-    && apt-get clean
-
-# Install Microsoft fonts with license pre-accepted
-RUN apt-get install -y ttf-mscorefonts-installer \
+    fonts-freefont-ttf \
+    fonts-liberation2 \
     && fc-cache -fv \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
