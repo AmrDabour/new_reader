@@ -4,7 +4,7 @@ FROM python:3.11.7-slim
 # Set the working directory in the container
 WORKDIR /app
 
-# Install system dependencies including Tesseract
+# Install system dependencies including Tesseract and fonts
 RUN apt-get update && apt-get install -y \
     libgl1-mesa-glx \
     libglib2.0-0 \
@@ -13,6 +13,8 @@ RUN apt-get update && apt-get install -y \
     tesseract-ocr-eng \
     build-essential \
     python3-dev \
+    fonts-dejavu \
+    fonts-freefont-ttf \
     && rm -rf /var/lib/apt/lists/*
 
 # Upgrade pip and install build tools

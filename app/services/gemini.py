@@ -17,18 +17,17 @@ class GeminiService:
         Makes a single call to Gemini to get both the field labels and a general
         explanation of the form.
         """
-        print("Starting Gemini form analysis...")
-        buffered = io.BytesIO()
-        image.save(buffered, format="PNG")
-        img_str = base64.b64encode(buffered.getvalue()).decode('utf-8')
-        print("Image converted to base64 string.")
-
-        lang_name = "Arabic" if language == 'rtl' else "English"
-        print(f"Using language: {lang_name}")
-        
-        # --- Language-Specific Prompts ---
-        if language == 'rtl':
-            prompt = f"""
+        try:
+            print("[Gemini] get_form_details called.")
+            buffered = io.BytesIO()
+            image.save(buffered, format="PNG")
+            img_str = base64.b64encode(buffered.getvalue()).decode('utf-8')
+            lang_name = "Arabic" if language == 'rtl' else "English"
+            print(f"[Gemini] Using language: {lang_name}")
+            
+            # --- Language-Specific Prompts ---
+            if language == 'rtl':
+                prompt = f"""
 أنت مساعد ذكي متخصص في تحليل النماذج، ومصمم خصيصًا لمساعدة مستخدم كفيف. هدفك الأساسي هو تقديم فهم واضح وموجز للنموذج.
 
 1.  **تحليل وتلخيص:** اقرأ النموذج بالكامل لفهم غرضه. بعد ذلك، قم بإنشاء ملخص مفيد (عدة جمل) **باللغة العربية فقط**. يجب أن يحقق الملخص توازنًا بين الإيجاز وتوفير المعلومات الهامة. يجب أن يتضمن الملخص:
@@ -56,8 +55,8 @@ class GeminiService:
       ]
     }}
     ```"""
-        else:
-            prompt = f"""You are an intelligent form assistant, specifically designed to help a visually impaired user. Your primary goal is to provide a clear and concise understanding of the form.
+            else:
+                prompt = f"""You are an intelligent form assistant, specifically designed to help a visually impaired user. Your primary goal is to provide a clear and concise understanding of the form.
 
 1.  **Analyze and Summarize:** Read the entire form to understand its purpose. Then, generate a helpful summary (a few sentences) in **{lang_name} only**. Achieve a balance between being concise and informative. The summary should include:
     - The main purpose of the form (e.g., "This is an application for a scholarship...").
@@ -85,8 +84,7 @@ class GeminiService:
     }}
     ```"""
 
-        try:
-            print("Calling Gemini API...")
+            print("[Gemini] Prompt prepared. Calling Gemini API...")
             image_part = {"mime_type": "image/png", "data": img_str}
             response = self.model.generate_content(
                 [prompt, image_part],
@@ -99,30 +97,25 @@ class GeminiService:
                 ),
                 stream=False
             )
-            print("Received response from Gemini API.")
+            print("[Gemini] Received response from Gemini API.")
             
             if not response.candidates or response.candidates[0].finish_reason.name != "STOP":
-                finish_reason_name = response.candidates[0].finish_reason.name if response.candidates else "NO_CANDIDATES"
-                safety_ratings = response.candidates[0].safety_ratings if response.candidates else "N/A"
-                print(f"Gemini call did not finish successfully. Reason: {finish_reason_name}")
-                print(f"Safety Ratings: {safety_ratings}")
-                if hasattr(response, 'prompt_feedback') and response.prompt_feedback:
-                    print(f"Prompt Feedback: {response.prompt_feedback}")
+                print(f"[Gemini] Gemini call did not finish successfully.")
                 return None, None
 
-            print("Processing Gemini response...")
+            print("[Gemini] Processing Gemini response...")
             response_text = response.text.strip().replace("```json", "").replace("```", "").strip()
-            
+            print(f"[Gemini] Raw response text: {response_text[:200]}...")
             parsed_json = json.loads(response_text)
             explanation = parsed_json.get("explanation")
             fields = parsed_json.get("fields")
 
             if isinstance(fields, list) and explanation:
-                print("Successfully extracted form details from Gemini response.")
+                print("[Gemini] get_form_details succeeded.")
                 return explanation, fields
-            print("Failed to extract valid form details from Gemini response.")
+            print("[Gemini] Failed to extract valid form details from Gemini response.")
             return None, None
 
         except (json.JSONDecodeError, Exception) as e:
-            print(f"An error occurred during Gemini form analysis: {e}")
+            print(f"[Gemini] Error in get_form_details: {e}")
             return None, None 

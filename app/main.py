@@ -40,17 +40,18 @@ async def analyze_form(file: UploadFile = File(...)):
     Now returns field coordinates and image dimensions as well.
     """
     try:
+        print("[API] /analyze-form request received.")
         image = Image.open(io.BytesIO(await file.read())).convert("RGB")
-        
         corrected_image = image_service.correct_image_orientation(image)
         fields_data, lang_direction = yolo_service.detect_fields(corrected_image)
         if not fields_data:
+            print("[API] No fillable fields detected by YOLO.")
             raise HTTPException(status_code=400, detail="No fillable fields detected.")
 
         gpt_image = image_service.create_annotated_image_for_gpt(corrected_image, fields_data, with_numbers=True)
-        
         explanation, gpt_fields_raw = gemini_service.get_form_details(gpt_image, lang_direction)
         if not gpt_fields_raw:
+            print("[API] AI model failed to extract form details.")
             raise HTTPException(status_code=500, detail="AI model failed to extract form details.")
 
         gpt_fields = [field for field in gpt_fields_raw if field.get("valid", False)]
@@ -61,6 +62,7 @@ async def analyze_form(file: UploadFile = File(...)):
         ui_image.save(buffered, format="PNG")
         img_b64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
 
+        print("[API] /analyze-form request completed.")
         return FormAnalysisResponse(
             fields=final_fields,
             form_explanation=explanation,
@@ -71,7 +73,7 @@ async def analyze_form(file: UploadFile = File(...)):
         )
 
     except Exception as e:
-        print(f"An unexpected error occurred in analyze_form: {e}")
+        print(f"[API] Error in analyze_form: {e}")
         raise HTTPException(status_code=500, detail=f"An internal error occurred: {e}")
 
 @app.post("/text-to-speech")
