@@ -29,7 +29,4 @@ pydantic
 pydantic-settings
 
 # Utilities
-requests
-wave
-io
-streamlit 
+requests 
