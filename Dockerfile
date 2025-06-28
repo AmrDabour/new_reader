@@ -4,7 +4,13 @@ FROM python:3.11-slim
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies and fonts
+# Set environment variable to avoid interactive prompts
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Pre-accept the Microsoft fonts license
+RUN echo "ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true" | debconf-set-selections
+
+# Install system dependencies and fonts in steps
 RUN apt-get update && apt-get install -y \
     tesseract-ocr \
     tesseract-ocr-ara \
@@ -16,16 +22,29 @@ RUN apt-get update && apt-get install -y \
     libxrender-dev \
     libgomp1 \
     wget \
+    curl \
     fontconfig \
+    debconf-utils \
+    && apt-get clean
+
+# Install fonts separately to better handle any issues
+RUN apt-get install -y \
     fonts-dejavu-core \
     fonts-dejavu-extra \
     fonts-liberation \
     fonts-noto-core \
     fonts-noto-cjk \
     fonts-noto-color-emoji \
-    ttf-mscorefonts-installer \
+    && apt-get clean
+
+# Install Microsoft fonts with license pre-accepted
+RUN apt-get install -y ttf-mscorefonts-installer \
     && fc-cache -fv \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
+# Reset DEBIAN_FRONTEND
+ENV DEBIAN_FRONTEND=
 
 # Copy requirements and install Python dependencies
 COPY requirements.txt .
