@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  insight-api:
+    build: .
+    ports:
+      - "10000:10000"
+    environment:
+      - GOOGLE_AI_API_KEY=${GOOGLE_AI_API_KEY}
+      - TESSERACT_CMD=/usr/bin/tesseract
+      - PORT=10000
+      - GEMINI_MODEL=gemini-2.5-flash
+      - MAX_FILE_SIZE_MB=50
+      - IMAGE_QUALITY=2
+      - MAX_IMAGE_SIZE=1920
+    volumes:
+      - ./uploads:/app/uploads
+      - ./app/models:/app/app/models
+    env_file:
+      - .env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:10000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  uploads: 

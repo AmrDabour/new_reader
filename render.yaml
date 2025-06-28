@@ -1,39 +1,31 @@
 services:
-  # Backend Service (FastAPI with Docker)
   - type: web
-    name: form-analyzer-api
+    name: insight-api
     env: docker
-    region: frankfurt
-    plan: free
-    # Set the root directory for the build context
-    repoRoot: ./form_analyzer
-    # The Dockerfile path is relative to the repoRoot
     dockerfilePath: ./Dockerfile
-    # Use the /docs endpoint for a reliable health check on FastAPI
-    healthCheckPath: /docs
+    repo: # Add your GitHub repo URL here
+    branch: main # or master
+    dockerContext: .
     envVars:
-      # Render provides the PORT env var automatically. Uvicorn uses it.
       - key: GOOGLE_AI_API_KEY
-        fromSecret: true
-
-  # Frontend Service (Streamlit)
-  - type: web
-    name: form-analyzer-ui
-    env: python
-    region: frankfurt
-    plan: free
-    # Set the root directory for the build context
-    repoRoot: ./form_analyzer
-    # The build/start commands are relative to the repoRoot
-    buildCommand: "pip install -r ./requirements.txt"
-    startCommand: "streamlit run ./ui.py"
-    envVars:
-      - key: STREAMLIT_SERVER_PORT
-        value: "10000"
-      # The UI needs to know the URL of the API it should talk to.
-      # Render injects this automatically.
-      - key: API_BASE_URL
-        fromService:
-          type: web
-          name: form-analyzer-api
-          property: url 
+        sync: false # Set this in Render dashboard
+      - key: TESSERACT_CMD
+        value: /usr/bin/tesseract
+      - key: PORT
+        value: 10000
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
+      - key: MAX_FILE_SIZE_MB
+        value: 50
+      - key: IMAGE_QUALITY
+        value: 2
+      - key: MAX_IMAGE_SIZE
+        value: 1920
+      - key: PYTHONPATH
+        value: /app
+    disk:
+      name: insight-disk
+      mountPath: /app/uploads
+      sizeGB: 1
+    healthCheckPath: /health
+    plan: starter # Change to 'standard' or higher for production 

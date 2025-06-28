@@ -1,18 +1,35 @@
+# FastAPI and web framework
 fastapi
 uvicorn
 python-multipart
+
+# Image processing
 pillow
+opencv-python-headless
 numpy
-ultralytics
+
+# AI services
 google-generativeai
+ultralytics
+
+# Text processing and OCR
+pytesseract
 arabic-reshaper
 python-bidi
-pytesseract
 langdetect
-opencv-python-headless
+word2number
+
+# Document processing libraries
+PyMuPDF
+spire.presentation
+
+# Configuration and environment
 python-dotenv
 pydantic
 pydantic-settings
-PyMuPDF
-requests 
-word2number
+
+# Utilities
+requests
+wave
+io
+streamlit 

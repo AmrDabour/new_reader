@@ -1,24 +1,249 @@
+# =============================================================================
+# ENVIRONMENT & CONFIGURATION FILES
+# =============================================================================
+.env
+.env.local
+.env.production
+.env.test
+.env.staging
+*.env
+
+# =============================================================================
+# PYTHON
+# =============================================================================
 # Byte-compiled / optimized / DLL files
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.so
 
-# Environment variables
-.env
-.env.*
-!.env.example
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
 
-# Virtual Environments
-.venv
+# PyInstaller
+*.manifest
+*.spec
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Virtual environments
 venv/
 env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
 
-# IDE settings
-.idea/
+# =============================================================================
+# TEMPORARY & RUNTIME FILES
+# =============================================================================
+# Application specific directories
+uploads/
+temp/
+logs/
+test_images/
+*.log
+*.tmp
+
+# Temporary files
+.tmp/
+tmp/
+temp/
+cache/
+
+# =============================================================================
+# DEVELOPMENT TOOLS
+# =============================================================================
+# IDEs
 .vscode/
+.idea/
+*.swp
+*.swo
+*~
 
-# OS-generated files
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# pipenv
+Pipfile.lock
+
+# PEP 582
+__pypackages__/
+
+# =============================================================================
+# OPERATING SYSTEM
+# =============================================================================
+# macOS
 .DS_Store
-Thumbs.db
+.AppleDouble
+.LSOverride
+._*
 
-# Specific files to ignore
-ui.py 
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Linux
+*~
+.directory
+.Trash-*
+
+# =============================================================================
+# DOCKER & CONTAINERS
+# =============================================================================
+.dockerignore
+docker-compose.override.yml
+
+# =============================================================================
+# AI MODELS & LARGE FILES
+# =============================================================================
+# Model files (if they're large)
+*.pt
+*.pth
+*.h5
+*.hdf5
+*.pkl
+*.pickle
+*.model
+
+# Large datasets
+*.csv
+*.json
+data/
+datasets/
+
+# =============================================================================
+# SECURITY & SENSITIVE FILES
+# =============================================================================
+# API Keys and secrets
+secrets/
+*.key
+*.pem
+*.p12
+*.pfx
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# =============================================================================
+# BUILD & DEPLOYMENT
+# =============================================================================
+# Build outputs
+build/
+dist/
+*.tar.gz
+*.zip
+
+# Deployment configs (keep render.yaml but exclude sensitive ones)
+.deployment/
+deploy/
+
+# =============================================================================
+# TESTING & DEVELOPMENT
+# =============================================================================
+# Test outputs
+test_output/
+test_results/
+screenshots/
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.pdf
+*.pptx
+*.ppt
+*.docx
+*.doc
+
+# Development databases
+dev.db
+test.db
+
+# =============================================================================
+# DOCUMENTATION BUILD
+# =============================================================================
+docs/_build/
+site/
+
+# =============================================================================
+# CUSTOM PROJECT EXCLUSIONS
+# =============================================================================
+# Backup files
+*.bak
+*.backup
+*.old
+
+# Archive files
+*.rar
+*.7z
+
+# Custom temporary directories
+scratch/
+playground/
+experiments/
+
+# Local configuration overrides
+local_config.py
+local_settings.py
+
+# =============================================================================
+# KEEP THESE FILES (negative patterns)
+# =============================================================================
+# Keep example environment file
+!env.example
+!.env.template
+
+# Keep important documentation
+!README.md
+!requirements.txt
+!Dockerfile
+!docker-compose.yml
+!render.yaml
+
+# Keep configuration templates
+!app/config.py
+
+# Keep test structure (but not test outputs)
+!test/
+test/test_output/
+test/temp/ 

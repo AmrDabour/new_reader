@@ -1,41 +1,43 @@
-# Use an official Python runtime as a parent image
-FROM python:3.11.7-slim
+# Use Python 3.11 as base image
+FROM python:3.11-slim
 
-# Set the working directory in the container
+# Set working directory
 WORKDIR /app
 
-# Install system dependencies including Tesseract and fonts
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
-    libgl1-mesa-glx \
-    libglib2.0-0 \
     tesseract-ocr \
     tesseract-ocr-ara \
     tesseract-ocr-eng \
-    build-essential \
-    python3-dev \
-    fonts-dejavu \
-    fonts-freefont-ttf \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
+    wget \
     && rm -rf /var/lib/apt/lists/*
 
-# Upgrade pip and install build tools
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel
-
-# Copy requirements first to leverage Docker cache
+# Copy requirements and install Python dependencies
 COPY requirements.txt .
-
-# Install Python packages with --no-deps to avoid dependency conflicts
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the application code (including models)
+# Copy application code
 COPY . .
 
-# Use PORT environment variable with fallback to 10000
-ENV PORT=10000
+# Create necessary directories
+RUN mkdir -p app/models app/temp uploads
+
+# Expose port
+EXPOSE 10000
+
+# Set environment variables
+ENV PYTHONPATH=/app
 ENV TESSERACT_CMD=/usr/bin/tesseract
 
-# Expose the port
-EXPOSE ${PORT}
+# Health check
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:10000/health || exit 1
 
 # Command to run the application
-CMD echo "Starting application on port ${PORT}" && \
-    uvicorn app.main:app --host 0.0.0.0 --port ${PORT} 
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "10000"] 

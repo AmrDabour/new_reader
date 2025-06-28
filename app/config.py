@@ -5,12 +5,26 @@ class Settings(BaseSettings):
     # Google AI Settings - will be loaded from GOOGLE_AI_API_KEY env var
     google_ai_api_key: str
 
-    # YOLO Model Paths - Relative to the WORKDIR in Docker
+    # YOLO Model Paths - Relative to the WORKDIR in Docker (for form analyzer)
     boxes_model_path: str = "app/models/boxes.pt"
     dot_line_model_path: str = "app/models/dot_line.pt"
 
     # Tesseract Configuration - loaded from TESSERACT_CMD env var, with a default for Linux
     tesseract_cmd: str = "/usr/bin/tesseract"
+
+    # Port setting - optional
+    port: int = 10000
+
+    # Document processing settings (for PPT/PDF reader)
+    max_file_size_mb: int = 50
+    supported_formats: list = [".pptx", ".ppt", ".pdf"]
+
+    # AI Analysis settings
+    gemini_model: str = "gemini-2.5-flash"  # Unified model for all Gemini operations
+
+    # Image processing settings
+    image_quality: int = 2  # Scale factor for PDF rendering
+    max_image_size: int = 1920  # Maximum width/height for images
 
     class Config:
         # Pydantic will automatically look for environment variables
@@ -21,4 +35,4 @@ class Settings(BaseSettings):
 
 @lru_cache()
 def get_settings():
-    return Settings()
+    return Settings() 

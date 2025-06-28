@@ -52,4 +52,4 @@ class OCRService:
             lang_code = detect(extracted_text)
             return 'rtl' if lang_code == 'ar' else 'ltr'
         except (pytesseract.TesseractNotFoundError, LangDetectException, Exception):
-            return None # Return None on any error
+            return None # Return None on any error 
