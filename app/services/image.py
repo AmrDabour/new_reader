@@ -32,7 +32,6 @@ class ImageService:
         """
         Draws numbered boxes on the image for analysis by the AI model.
         """
-        print(f"[ImageService] create_annotated_image_for_gpt called.")
         base_img = image.copy().convert("RGBA")
         overlay = Image.new("RGBA", base_img.size, (255, 255, 255, 0))
         draw = ImageDraw.Draw(overlay)
@@ -59,7 +58,6 @@ class ImageService:
                 text_x = x + (w_box - text_w) / 2
                 text_y = y + (h_box - text_h) / 2
                 draw.text((text_x, text_y), text, fill="red", font=font)
-        print(f"[ImageService] create_annotated_image_for_gpt finished.")
         return Image.alpha_composite(base_img, overlay)
 
     def create_final_annotated_image(self, image: Image.Image, texts_dict: dict, ui_fields: list):
@@ -132,7 +130,6 @@ class ImageService:
         """
         Merges the results from YOLO (box coordinates) and GPT (labels).
         """
-        print(f"[ImageService] combine_yolo_and_gpt_results called.")
         final_fields = []
         gpt_map = {res['id']: res['label'] for res in gpt_results if 'id' in res and 'label' in res}
         for i, field_data in enumerate(fields_data):
@@ -147,5 +144,4 @@ class ImageService:
                     'type': field_type,
                     'box': field_data['box']
                 })
-        print(f"[ImageService] combine_yolo_and_gpt_results finished.")
         return final_fields 

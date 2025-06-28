@@ -18,7 +18,7 @@ class GeminiService:
         explanation of the form.
         """
         try:
-            print("[Gemini] get_form_details called.")
+            print("[Gemini] get_form_details started.")
             buffered = io.BytesIO()
             image.save(buffered, format="PNG")
             img_str = base64.b64encode(buffered.getvalue()).decode('utf-8')
@@ -97,25 +97,18 @@ class GeminiService:
                 ),
                 stream=False
             )
-            print("[Gemini] Received response from Gemini API.")
-            
             if not response.candidates or response.candidates[0].finish_reason.name != "STOP":
                 print(f"[Gemini] Gemini call did not finish successfully.")
                 return None, None
-
-            print("[Gemini] Processing Gemini response...")
             response_text = response.text.strip().replace("```json", "").replace("```", "").strip()
-            print(f"[Gemini] Raw response text: {response_text[:200]}...")
             parsed_json = json.loads(response_text)
             explanation = parsed_json.get("explanation")
             fields = parsed_json.get("fields")
-
             if isinstance(fields, list) and explanation:
                 print("[Gemini] get_form_details succeeded.")
                 return explanation, fields
             print("[Gemini] Failed to extract valid form details from Gemini response.")
             return None, None
-
         except (json.JSONDecodeError, Exception) as e:
             print(f"[Gemini] Error in get_form_details: {e}")
             return None, None 
