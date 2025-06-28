@@ -4,7 +4,7 @@ FROM python:3.11-slim
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies and fonts
 RUN apt-get update && apt-get install -y \
     tesseract-ocr \
     tesseract-ocr-ara \
@@ -16,6 +16,15 @@ RUN apt-get update && apt-get install -y \
     libxrender-dev \
     libgomp1 \
     wget \
+    fontconfig \
+    fonts-dejavu-core \
+    fonts-dejavu-extra \
+    fonts-liberation \
+    fonts-noto-core \
+    fonts-noto-cjk \
+    fonts-noto-color-emoji \
+    ttf-mscorefonts-installer \
+    && fc-cache -fv \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install Python dependencies

@@ -117,22 +117,12 @@ class DocumentProcessor:
 
             for i, slide in enumerate(presentation.Slides):
                 try:
-                    # Save slide as temporary image using Spire
-                    temp_image_path = os.path.join(self.temp_dir, f"slide_{i}.png")
-                    image = slide.SaveAsImage()
-                    image.Save(temp_image_path)
-
-                    # Load image with PIL
-                    pil_image = Image.open(temp_image_path)
-                    if pil_image.mode != "RGB":
-                        pil_image = pil_image.convert("RGB")
-
-                    # Convert to base64
-                    image_base64 = self._image_to_base64(pil_image)
-
-                    # Extract slide text content using Spire
+                    # Extract slide text first (safer operation)
                     slide_text = self._extract_slide_text(slide)
-
+                    
+                    # Try to save slide as image with better error handling
+                    image_base64 = self._save_slide_as_image(slide, i)
+                    
                     # Create slide data
                     slide_data = {
                         "page_number": i + 1,
@@ -144,22 +134,22 @@ class DocumentProcessor:
 
                     pages.append(slide_data)
 
-                    # Clean up temp image file
-                    try:
-                        os.remove(temp_image_path)
-                    except:
-                        pass
-
                 except Exception as e:
-                    logger.error(f"Error processing slide {i}: {str(e)}")
-                    # Create fallback slide data
+                    logger.warning(f"Error processing slide {i}: {str(e)}")
+                    # Create fallback slide data with text extraction attempt
+                    try:
+                        slide_text = self._extract_slide_text(slide)
+                    except:
+                        slide_text = f"Slide {i + 1} content could not be extracted"
+                    
+                    # Create simple fallback image
                     blank_image = Image.new("RGB", (1920, 1080), "white")
                     image_base64 = self._image_to_base64(blank_image)
 
                     slide_data = {
                         "page_number": i + 1,
                         "title": f"Slide {i + 1}",
-                        "text": "Error loading slide content",
+                        "text": slide_text,
                         "image_base64": image_base64,
                         "notes": "",
                     }
@@ -178,6 +168,69 @@ class DocumentProcessor:
             # Create fallback response instead of failing  
             logger.debug(f"PowerPoint processing failed, using fallback: {str(e)}")
             return self._create_fallback_document("pptx")
+
+    def _save_slide_as_image(self, slide, slide_index: int) -> str:
+        """حفظ الشريحة كصورة مع معالجة أخطاء الخطوط"""
+        temp_image_path = None
+        try:
+            # Try to save slide as image
+            temp_image_path = os.path.join(self.temp_dir, f"slide_{slide_index}.png")
+            
+            # Try different methods to get slide image
+            try:
+                # Method 1: Standard SaveAsImage
+                image = slide.SaveAsImage()
+                image.Save(temp_image_path)
+            except Exception as font_error:
+                # Check if it's a font-related error
+                error_msg = str(font_error).lower()
+                if "font" in error_msg or "cannot found font" in error_msg:
+                    logger.warning(f"Font error in slide {slide_index}, trying alternative method: {font_error}")
+                    # Try alternative method or create fallback
+                    return self._create_fallback_slide_image(slide_index)
+                else:
+                    # Re-raise if it's not a font error
+                    raise
+
+            # Load and process the saved image
+            if os.path.exists(temp_image_path):
+                pil_image = Image.open(temp_image_path)
+                if pil_image.mode != "RGB":
+                    pil_image = pil_image.convert("RGB")
+                
+                # Convert to base64
+                image_base64 = self._image_to_base64(pil_image)
+                return image_base64
+            else:
+                # If file wasn't created, use fallback
+                return self._create_fallback_slide_image(slide_index)
+
+        except Exception as e:
+            logger.warning(f"Failed to save slide {slide_index} as image: {str(e)}")
+            return self._create_fallback_slide_image(slide_index)
+        
+        finally:
+            # Clean up temp image file
+            if temp_image_path and os.path.exists(temp_image_path):
+                try:
+                    os.remove(temp_image_path)
+                except:
+                    pass
+
+    def _create_fallback_slide_image(self, slide_index: int) -> str:
+        """إنشاء صورة احتياطية للشريحة"""
+        try:
+            # Create a simple image with slide number
+            fallback_image = Image.new("RGB", (1920, 1080), "white")
+            
+            # You could add text or graphics here if PIL supports it
+            # For now, just return the white image
+            return self._image_to_base64(fallback_image)
+            
+        except Exception as e:
+            logger.error(f"Failed to create fallback image for slide {slide_index}: {str(e)}")
+            # Return empty string as last resort
+            return ""
 
     def _extract_slide_text(self, slide) -> str:
         """استخراج النص من شريحة PowerPoint"""
