@@ -5,6 +5,12 @@ from typing import List, Dict, Any, Optional
 # FORM ANALYZER SCHEMAS
 # =============================================================================
 
+# --- Image Quality Check Endpoint ---
+class ImageQualityResponse(BaseModel):
+    is_suitable: bool
+    feedback: str
+    status: str = "success"
+
 # --- Main Analysis Endpoint ---
 class UIField(BaseModel):
     box_id: str

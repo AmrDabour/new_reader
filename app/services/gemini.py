@@ -6,7 +6,7 @@ import io
 import json
 import re
 import logging
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple
 
 settings = get_settings()
 genai.configure(api_key=settings.google_ai_api_key)
@@ -32,98 +32,55 @@ class GeminiService:
     # FORM ANALYZER METHODS
     # =============================================================================
 
-    def get_form_details(self, image: Image.Image, language: str):
+    def get_form_details(self, image: Image.Image, language: str) -> Tuple[Optional[str], Optional[List[Dict]]]:
         """
         Makes a single call to Gemini to get both the field labels and a general
         explanation of the form.
         """
         try:
+            # Convert image to bytes
             buffered = io.BytesIO()
             image.save(buffered, format="PNG")
-            img_str = base64.b64encode(buffered.getvalue()).decode('utf-8')
+            image_bytes = buffered.getvalue()
+
             lang_name = "Arabic" if language == 'rtl' else "English"
-            
-            # --- Language-Specific Prompts ---
-            if language == 'rtl':
-                prompt = f"""
-أنت مساعد ذكي متخصص في تحليل النماذج، ومصمم خصيصًا لمساعدة مستخدم كفيف. هدفك الأساسي هو تقديم فهم واضح وموجز للنموذج.
 
-1.  **تحليل وتلخيص:** اقرأ النموذج بالكامل لفهم غرضه. بعد ذلك، قم بإنشاء ملخص مفيد (عدة جمل) **باللغة العربية فقط**. يجب أن يحقق الملخص توازنًا بين الإيجاز وتوفير المعلومات الهامة. يجب أن يتضمن الملخص:
-    - الغرض الرئيسي للنموذج (مثال: "هذا طلب للحصول على منحة دراسية...").
-    - أي جهات أو مؤسسات أو شروط رئيسية مذكورة بالفعل في النص (مثال: "...مقدمة من ITIDA و NTI..."، "...تتضمن شرطًا جزائيًا في حالة الغياب...").
-    - الفئات العامة للمعلومات التي سيحتاج المستخدم إلى تقديمها (مثال: "...سيُطلب منك تقديم تفاصيل شخصية ومعلومات الاتصال وبياناتك الأكاديمية.").
-    - الهدف هو إعطاء المستخدم إحساسًا جيدًا بسياق النموذج دون قراءة كل كلمة فيه.
+            prompt = f"""
+You are an expert in document analysis. I am providing you with an image of a form where potential input fields are numbered.
+Your task is to perform two actions and return the result as a single JSON object.
 
-2.  **تحديد الحقول القابلة للتعبئة:** لكل مربع مرقم (1، 2، 3، إلخ) يمثل مكانًا للكتابة للمستخدم:
-    - ابحث عن التسمية النصية أو الوصف المقابل بالقرب منه.
-    - **حدد ما إذا كان المربع صالحًا بناءً على السياق:** قم بتحليل التسمية والنص المحيط لفهم الغرض من الحقل.
-        - يعتبر الحقل **غير صالح** إذا كان النص يشير إلى أنه "للاستخدام الرسمي فقط"، أو مثال، أو مجرد تعليمة، أو إذا كان يحتوي بالفعل على قيمة محددة.
-        - يعتبر الحقل **صالحًا** إذا كان غرضه هو الحصول على معلومات من المستخدم بوضوح (مثل: "الاسم"، "العنوان"، "التوقيع").
-        - **مربعات الاختيار:** تكون مربعات الاختيار **صالحة** دائمًا تقريبًا. اجعلها غير صالحة فقط إذا لم تكن عنصرًا تفاعليًا بشكل واضح.
-    - احتفظ بنص التسمية كما هو مكتوب في النموذج تمامًا، دون ترجمة.
+1.  **Extract Labels**: For each numbered area on the image, extract the exact text label that describes it.
+    -   Do NOT summarize or invent labels. Extract the text as you see it.
+    -   **CRITICAL FOR ARABIC**: For any text in Arabic, you MUST extract the characters verbatim. Do not romanize, translate, or interpret Arabic names or words. Preserve the original Arabic script with perfect precision.
+2.  **Generate Explanation**: Based on the labels you just extracted, write a brief, friendly summary of the form's purpose and what information the user will need to provide. This explanation MUST be in {lang_name}.
 
-3.  **تنسيق الإخراج:** يجب أن يكون الإخراج كائن JSON واحد فقط، بدون أي نص قبله أو بعده.
-
-    ```json
-    {{
-      "explanation": "ملخصك المفيد والموجز باللغة العربية.",
-      "fields": [
-        {{ "id": 1, "label": "نص المربع 1", "valid": true }},
-        {{ "id": 2, "label": "نص المربع 2", "valid": false }}
-      ]
-    }}
-    ```"""
-            else:
-                prompt = f"""You are an intelligent form assistant, specifically designed to help a visually impaired user. Your primary goal is to provide a clear and concise understanding of the form.
-
-1.  **Analyze and Summarize:** Read the entire form to understand its purpose. Then, generate a helpful summary (a few sentences) in **{lang_name} only**. Achieve a balance between being concise and informative. The summary should include:
-    - The main purpose of the form (e.g., "This is an application for a scholarship...").
-    - Any important entities, organizations, or key conditions already mentioned in the text (e.g., "...offered by ITIDA and NTI...", "...it includes a penalty for absence...").
-    - The general categories of information the user will need to provide (e.g., "...you will be asked for personal, contact, and academic details.").
-    - The goal is to give the user a good sense of the form's context without reading every single word.
-
-2.  **Identify Fillable Fields:** For each numbered box (1, 2, 3, etc.) that represents a place for the user to write:
-    - Find the corresponding text label or description near it.
-    - **Determine if the box is valid based on CONTEXT:** Analyze the label and surrounding text to understand the field's purpose.
-        - A field is **invalid** if the text implies it is for official use, an example, an instruction, or if it already contains a definitive value.
-        - A field is **valid** if its purpose is clearly to capture information from the user (e.g., "Name", "Address", "Signature").
-        - **Checkboxes:** A checkbox is almost always **valid**. Only mark it as invalid if it is clearly not an interactive element.
-    - Keep the label text exactly as it is written in the form, without translation.
-
-3.  **Format your response strictly as a single JSON object with no other text before or after it.**
-
-    ```json
-    {{
-      "explanation": "Your helpful, concise summary in {lang_name}.",
-      "fields": [
-        {{ "id": 1, "label": "Text for box 1", "valid": true }},
-        {{ "id": 2, "label": "Text for box 2", "valid": false }}
-      ]
-    }}
-    ```"""
-
-            image_part = {"mime_type": "image/png", "data": img_str}
+Return a single, valid JSON object with the following structure and nothing else. Do not wrap it in markdown.
+{{
+  "explanation": "The explanation you generated in {lang_name}.",
+  "fields": [
+    {{ "id": 1, "label": "The label for box 1" }},
+    {{ "id": 2, "label": "The label for box 2" }}
+  ]
+}}
+"""
             response = self.form_model.generate_content(
-                [prompt, image_part],
-                generation_config=genai.GenerationConfig(
-                    temperature=0,
-                    candidate_count=1,
-                    top_k=1,
-                    top_p=0.1,
-                    max_output_tokens=9000
-                ),
+                [prompt, image_bytes],
                 stream=False
             )
-            if not response.candidates or response.candidates[0].finish_reason.name != "STOP":
-                return None, None
-            response_text = response.text.strip().replace("```json", "").replace("```", "").strip()
-            parsed_json = json.loads(response_text)
+            
+            result = response.text
+            parsed_json = json.loads(result)
+            
             explanation = parsed_json.get("explanation")
             fields = parsed_json.get("fields")
+
             if isinstance(fields, list) and explanation:
                 return explanation, fields
+            
             return None, None
-        except (json.JSONDecodeError, Exception) as e:
+
+        except Exception as e:
+            print(f"Error in Gemini service: {e}")
             return None, None
 
     # =============================================================================
@@ -432,4 +389,62 @@ Return analysis for each slide in the following JSON format:
             "presentation_summary": summary_text,
             "total_slides": 1,
             "slides_analysis": slides_analysis
-        } 
+        }
+
+    def check_image_quality(self, image: Image.Image, language: str = "ar") -> Tuple[bool, str]:
+        """
+        Check if the uploaded image is suitable for form analysis.
+        Returns (is_suitable, feedback_message)
+        """
+        try:
+            # Convert image to bytes
+            buffered = io.BytesIO()
+            image.save(buffered, format="PNG")
+            image_bytes = buffered.getvalue()
+
+            lang_instruction = "Arabic" if language == "ar" else "English"
+
+            prompt = f"""
+You are an AI assistant helping visually impaired users take better photos of forms and documents.
+
+Analyze this image and check if it's suitable for form analysis. Consider these factors:
+1. Image clarity and sharpness
+2. Lighting conditions
+3. Document visibility and completeness
+4. Blur or motion blur
+5. Angle and orientation
+6. Whether it's actually a form/document
+
+Respond with a JSON object in this exact format:
+{{
+  "is_suitable": true/false,
+  "feedback": "Your detailed feedback message in {lang_instruction}"
+}}
+
+Guidelines for feedback:
+- If suitable: Give encouraging message and confirm it's ready for analysis
+- If not suitable: Explain the specific problem(s) and give clear instructions on how to improve the photo
+- Be supportive and helpful for visually impaired users
+- Use simple, clear language
+- Provide specific actionable advice
+
+The feedback must be in {lang_instruction} language.
+"""
+
+            response = self.model.generate_content(
+                [prompt, image_bytes],
+                stream=False
+            )
+            
+            result = response.text
+            parsed_json = json.loads(result)
+            
+            is_suitable = parsed_json.get("is_suitable", False)
+            feedback = parsed_json.get("feedback", "Unable to analyze image quality.")
+
+            return is_suitable, feedback
+
+        except Exception as e:
+            print(f"Error in image quality check: {e}")
+            fallback_message = "حدث خطأ في فحص جودة الصورة. يرجى المحاولة مرة أخرى." if language == "ar" else "Error checking image quality. Please try again."
+            return False, fallback_message 

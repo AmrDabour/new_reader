@@ -8,7 +8,7 @@ from PIL import Image
 from app.services.yolo import YOLOService
 from app.services.gemini import GeminiService
 from app.services.image import ImageService
-from app.models.schemas import FormAnalysisResponse
+from app.models.schemas import FormAnalysisResponse, ImageQualityResponse
 
 router = APIRouter()
 
@@ -17,21 +17,49 @@ yolo_service = YOLOService()
 gemini_service = GeminiService()
 image_service = ImageService()
 
+@router.post("/check-quality", response_model=ImageQualityResponse)
+async def check_image_quality(image: UploadFile = File(...), language: str = Form("ar")):
+    """
+    Check if the uploaded image is suitable for form analysis.
+    This endpoint helps visually impaired users by providing feedback on image quality.
+    """
+    try:
+        print("[API] /form/check-quality request received.")
+        
+        # Read and process image
+        image_data = Image.open(io.BytesIO(await image.read())).convert("RGB")
+        
+        # Check image quality using Gemini
+        is_suitable, feedback = gemini_service.check_image_quality(image_data, language)
+        
+        print(f"[API] Image quality check completed. Suitable: {is_suitable}")
+        
+        return ImageQualityResponse(
+            is_suitable=is_suitable,
+            feedback=feedback,
+            status="success"
+        )
+        
+    except Exception as e:
+        print(f"[API] Error in check_image_quality: {e}")
+        error_message = "حدث خطأ في فحص جودة الصورة. يرجى المحاولة مرة أخرى." if language == "ar" else "Error checking image quality. Please try again."
+        raise HTTPException(status_code=500, detail=error_message)
+
 @router.post("/analyze", response_model=FormAnalysisResponse)
-async def analyze_form(image: UploadFile = File(...), language: str = Form("rtl")):
+async def analyze_form(image: UploadFile = File(...)):
     """
     Main endpoint to analyze a form from an uploaded file.
-    Now returns field coordinates and image dimensions as well.
+    Automatically detects language direction and returns field coordinates and image dimensions.
     """
     try:
         print("[API] /form/analyze request received.")
         image_data = Image.open(io.BytesIO(await image.read())).convert("RGB")
         corrected_image = image_service.correct_image_orientation(image_data)
-        fields_data, lang_direction = yolo_service.detect_fields(corrected_image)
         
-        # Use the language parameter from form data
-        if language:
-            lang_direction = language
+        # YOLO detects fields and automatically determines language direction
+        fields_data, lang_direction = yolo_service.detect_fields(corrected_image)
+        print(f"[API] Auto-detected language direction: {lang_direction}")
+        
         if not fields_data:
             print("[API] No fillable fields detected by YOLO.")
             raise HTTPException(status_code=400, detail="No fillable fields detected.")
@@ -67,7 +95,6 @@ async def analyze_form(image: UploadFile = File(...), language: str = Form("rtl"
 @router.post("/annotate")
 async def annotate_image_endpoint(
     image: UploadFile = File(...),
-    language: str = Form("rtl"),
     fields: str = Form(...)
 ):
     """
