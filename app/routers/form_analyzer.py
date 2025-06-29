@@ -18,10 +18,11 @@ gemini_service = GeminiService()
 image_service = ImageService()
 
 @router.post("/check-quality", response_model=ImageQualityResponse)
-async def check_image_quality(image: UploadFile = File(...), language: str = Form("ar")):
+async def check_image_quality(image: UploadFile = File(...)):
     """
     Check if the uploaded image is suitable for form analysis.
     This endpoint helps visually impaired users by providing feedback on image quality.
+    Automatically detects language from the image.
     """
     try:
         print("[API] /form/check-quality request received.")
@@ -29,8 +30,17 @@ async def check_image_quality(image: UploadFile = File(...), language: str = For
         # Read and process image
         image_data = Image.open(io.BytesIO(await image.read())).convert("RGB")
         
+        # Auto-detect language from image using OCR
+        from app.services.ocr import OCRService
+        ocr_service = OCRService()
+        detected_language = ocr_service.detect_language_locally(image_data)
+        
+        # Convert to language code for feedback
+        language_code = "ar" if detected_language == "rtl" else "en"
+        print(f"[API] Auto-detected language for feedback: {language_code}")
+        
         # Check image quality using Gemini
-        is_suitable, feedback = gemini_service.check_image_quality(image_data, language)
+        is_suitable, feedback = gemini_service.check_image_quality(image_data, language_code)
         
         print(f"[API] Image quality check completed. Suitable: {is_suitable}")
         
@@ -42,7 +52,8 @@ async def check_image_quality(image: UploadFile = File(...), language: str = For
         
     except Exception as e:
         print(f"[API] Error in check_image_quality: {e}")
-        error_message = "حدث خطأ في فحص جودة الصورة. يرجى المحاولة مرة أخرى." if language == "ar" else "Error checking image quality. Please try again."
+        # Default to Arabic for error messages since it's the primary language
+        error_message = "حدث خطأ في فحص جودة الصورة. يرجى المحاولة مرة أخرى."
         raise HTTPException(status_code=500, detail=error_message)
 
 @router.post("/analyze", response_model=FormAnalysisResponse)

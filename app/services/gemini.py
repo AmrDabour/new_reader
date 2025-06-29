@@ -397,6 +397,11 @@ Return analysis for each slide in the following JSON format:
         Returns (is_suitable, feedback_message)
         """
         try:
+            # Check if model is available
+            if not self.form_model:
+                fallback_message = "خدمة فحص جودة الصورة غير متاحة حالياً." if language == "ar" else "Image quality check service is currently unavailable."
+                return False, fallback_message
+            
             # Convert image to bytes
             buffered = io.BytesIO()
             image.save(buffered, format="PNG")
@@ -431,7 +436,7 @@ Guidelines for feedback:
 The feedback must be in {lang_instruction} language.
 """
 
-            response = self.model.generate_content(
+            response = self.form_model.generate_content(
                 [prompt, image_bytes],
                 stream=False
             )

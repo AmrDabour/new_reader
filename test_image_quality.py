@@ -6,13 +6,12 @@ from pathlib import Path
 API_URL = "https://new-reader-benk.onrender.com"  # أو استخدم localhost للاختبار المحلي
 # API_URL = "http://localhost:8000"
 
-def test_image_quality_check(image_path, language="ar"):
+def test_image_quality_check(image_path):
     """
-    Test the new image quality check endpoint
+    Test the new image quality check endpoint (now with automatic language detection)
     """
-    print(f"\n=== Testing Image Quality Check ===")
+    print(f"\n=== Testing Image Quality Check (Auto Language Detection) ===")
     print(f"Image: {image_path}")
-    print(f"Language: {language}")
     
     try:
         # Check if image file exists
@@ -22,12 +21,11 @@ def test_image_quality_check(image_path, language="ar"):
             
         with open(image_path, 'rb') as f:
             files = {'image': ('test_form.jpg', f, 'image/jpeg')}
-            data = {'language': language}
+            # No need to send language parameter anymore!
             
             response = requests.post(
                 f"{API_URL}/form/check-quality", 
-                files=files,
-                data=data
+                files=files
             )
             
             if response.status_code == 200:
@@ -79,20 +77,21 @@ def test_form_analysis(image_path):
         print(f"❌ Exception in form analysis: {str(e)}")
         return None
 
-def test_workflow(image_path, language="ar"):
+def test_workflow(image_path):
     """
     Test the complete workflow: quality check first, then analysis if suitable
+    (Both endpoints now auto-detect language)
     """
-    print(f"\n=== Testing Complete Workflow ===")
+    print(f"\n=== Testing Complete Workflow (Full Auto-Detection) ===")
     
-    # Step 1: Check image quality
-    quality_result = test_image_quality_check(image_path, language)
+    # Step 1: Check image quality (auto-detects language for feedback)
+    quality_result = test_image_quality_check(image_path)
     
     if not quality_result:
         print("❌ Quality check failed, stopping workflow")
         return
     
-    # Step 2: If image is suitable, proceed with analysis
+    # Step 2: If image is suitable, proceed with analysis (auto-detects language)
     if quality_result['is_suitable']:
         print("\n✅ Image is suitable, proceeding with form analysis...")
         analysis_result = test_form_analysis(image_path)
@@ -108,7 +107,7 @@ def test_workflow(image_path, language="ar"):
         print("User should follow the feedback and retake the photo")
 
 def main():
-    # Test with different images and languages
+    # Test with different images
     test_images = [
         # Add your test image paths here
         r"c:\Users\moham\OneDrive\Desktop\169599791_913406986138219_4555978638757445093_n.jpg",
@@ -117,10 +116,11 @@ def main():
     
     for image_path in test_images:
         if Path(image_path).exists():
-            # Test complete workflow with Arabic feedback
-            test_workflow(image_path, "ar")
+            # Test complete workflow (both endpoints auto-detect language)
+            test_workflow(image_path)
             
-            # Test just the analysis endpoint to see auto-detection
+            # Test individual endpoints
+            test_image_quality_check(image_path)
             test_form_analysis(image_path)
             
         else:
