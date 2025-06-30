@@ -427,30 +427,28 @@ Return analysis for each slide in the following JSON format:
             lang_instruction = "Arabic" if language == "ar" else "English"
 
             prompt = f"""
-You are an AI assistant helping visually impaired users take better photos of forms and documents.
+You are helping visually impaired users take better photos of forms and documents.
 
-Analyze this image and check if it's suitable for form analysis. Consider these factors:
+Analyze this image and check if it's suitable for form analysis. Consider:
 1. Image clarity and sharpness
-2. Lighting conditions
+2. Lighting conditions  
 3. Document visibility and completeness
-4. Blur or motion blur
-5. Angle and orientation
-6. Whether it's actually a form/document
+4. Whether it's actually a form/document
 
-Respond with a JSON object in this exact format:
+Respond with a JSON object:
 {{
   "is_suitable": true/false,
-  "feedback": "Your detailed feedback message in {lang_instruction}"
+  "feedback": "Short, helpful message in {lang_instruction}"
 }}
 
-Guidelines for feedback:
-- If suitable: Give encouraging message and confirm it's ready for analysis
-- If not suitable: Explain the specific problem(s) and give clear instructions on how to improve the photo
-- Be supportive and helpful for visually impaired users
-- Use simple, clear language
-- Provide specific actionable advice
+Feedback guidelines:
+- Keep it SHORT (maximum 2-3 sentences)
+- If suitable: Simple confirmation like "الصورة واضحة ومناسبة للتحليل" or "Image is clear and ready for analysis"
+- If not suitable: Give ONE main problem and ONE simple solution
+- Use simple, direct language
+- Be encouraging and supportive
 
-The feedback must be in {lang_instruction} language.
+The feedback MUST be in {lang_instruction} language only.
 """
 
             # Pass the PIL Image directly to Gemini
@@ -484,7 +482,7 @@ The feedback must be in {lang_instruction} language.
                 print(f"JSON decode error: {json_err}")
                 print(f"Problematic response: {result}")
                 # Provide a fallback response
-                fallback_message = "تم استلام الصورة ولكن لم أتمكن من تحليلها بشكل كامل. يرجى التأكد من أن الصورة واضحة وتحتوي على نموذج أو مستند." if language == "ar" else "Image received but could not be fully analyzed. Please ensure the image is clear and contains a form or document."
+                fallback_message = "الصورة غير واضحة. تأكد من الإضاءة الجيدة وثبات اليد." if language == "ar" else "Image unclear. Ensure good lighting and steady hand."
                 return False, fallback_message
             
             is_suitable = parsed_json.get("is_suitable", False)
