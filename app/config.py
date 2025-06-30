@@ -21,6 +21,7 @@ class Settings(BaseSettings):
 
     # AI Analysis settings
     gemini_model: str = "gemini-2.5-flash"  # Unified model for all Gemini operations
+    gemini_tts_model: str = "gemini-2.5-flash-preview-tts"  # Specialized model for text-to-speech
 
     # Image processing settings
     image_quality: int = 2  # Scale factor for PDF rendering

@@ -15,94 +15,169 @@ logger = logging.getLogger(__name__)
 
 class GeminiService:
     def __init__(self):
+        self.model = genai.GenerativeModel(settings.gemini_model)
+
+    def detect_language_and_quality(self, image: Image.Image) -> Tuple[str, bool, str]:
+        """
+        Detects language direction and checks image quality
+        Returns (language_direction, is_good_quality, quality_message)
+        """
         try:
-            self.form_model = genai.GenerativeModel(settings.gemini_model)
-            self.currency_model = genai.GenerativeModel(settings.gemini_model)
-            self.document_model = genai.GenerativeModel(settings.gemini_model)
-            self.vision_model = genai.GenerativeModel(settings.gemini_model)
-            logger.info("Gemini AI service initialized successfully")
-        except Exception as e:
-            logger.error(f"Failed to initialize Gemini AI: {e}")
-            self.form_model = None
-            self.currency_model = None
-            self.document_model = None
-            self.vision_model = None
+            buffered = io.BytesIO()
+            image.save(buffered, format="PNG")
+            img_str = base64.b64encode(buffered.getvalue()).decode('utf-8')
+            
+            prompt = """
+Analyze this image in two steps:
 
-    # =============================================================================
-    # FORM ANALYZER METHODS
-    # =============================================================================
+1. **First: Detect Language** - Determine if this form is primarily in Arabic (rtl) or English/other (ltr)
 
-    def get_form_details(self, image: Image.Image, language: str) -> Tuple[Optional[str], Optional[List[Dict]]]:
+2. **Then: Respond in the SAME detected language** with quality assessment
+
+**Quality Assessment Guidelines:**
+- ACCEPTABLE: Minor lighting issues, slight tilt, readable text
+- NEEDS IMPROVEMENT: Significantly cropped, very blurry text, major rotation, very poor lighting
+- Focus on whether form fields can be detected and text can be read
+
+**Response Format - JSON only:**
+
+```json
+{
+  "language_direction": "rtl" or "ltr", 
+  "quality_good": true or false,
+  "quality_message": "Brief assessment and tips in detected language"
+}
+```
+
+**Example Messages:**
+- Arabic form with minor issues: "الصورة مقبولة للتحليل. نصيحة: حاول تحسين الإضاءة قليلاً"
+- English form with problems: "Image needs improvement. Try: better lighting and straighten the form"
+- Good quality: "الصورة واضحة ومناسبة للتحليل" / "Image is clear and suitable for analysis"
+
+Keep message concise and helpful. Don't be overly strict on minor imperfections.
+"""
+
+            image_part = {"mime_type": "image/png", "data": img_str}
+            response = self.model.generate_content(
+                [prompt, image_part],
+                generation_config=genai.GenerationConfig(
+                    temperature=0,
+                    candidate_count=1,
+                    top_k=1,
+                    top_p=0.1,
+                    max_output_tokens=1000
+                ),
+                stream=False
+            )
+            
+            if not response.candidates or response.candidates[0].finish_reason.name != "STOP":
+                return 'ltr', True, "Unable to analyze image quality"
+                
+            response_text = response.text.strip().replace("```json", "").replace("```", "").strip()
+            
+            parsed_json = json.loads(response_text)
+            
+            language_direction = parsed_json.get("language_direction", 'ltr')
+            quality_good = parsed_json.get("quality_good", True)
+            quality_message = parsed_json.get("quality_message", "Image quality check completed")
+            
+            return language_direction, quality_good, quality_message
+            
+        except (json.JSONDecodeError, Exception) as e:
+            return 'ltr', True, "Error analyzing image"
+
+    def get_form_details(self, image: Image.Image, language: str):
         """
         Makes a single call to Gemini to get both the field labels and a general
         explanation of the form.
         """
         try:
-            # Check if model is available
-            if not self.form_model:
-                return None, None
-
+            buffered = io.BytesIO()
+            image.save(buffered, format="PNG")
+            img_str = base64.b64encode(buffered.getvalue()).decode('utf-8')
             lang_name = "Arabic" if language == 'rtl' else "English"
 
-            prompt = f"""
-You are an expert in document analysis. I am providing you with an image of a form where potential input fields are numbered.
-Your task is to perform two actions and return the result as a single JSON object.
+            # --- Language-Specific Prompts ---
+            if language == 'rtl':
+                prompt = f"""
+أنت مساعد ذكي متخصص في تحليل النماذج، ومصمم خصيصًا لمساعدة مستخدم كفيف. هدفك الأساسي هو تقديم فهم واضح وموجز للنموذج.
 
-1.  **Extract Labels**: For each numbered area on the image, extract the exact text label that describes it.
-    -   Do NOT summarize or invent labels. Extract the text as you see it.
-    -   **CRITICAL FOR ARABIC**: For any text in Arabic, you MUST extract the characters verbatim. Do not romanize, translate, or interpret Arabic names or words. Preserve the original Arabic script with perfect precision.
-2.  **Generate Explanation**: Based on the labels you just extracted, write a brief, friendly summary of the form's purpose and what information the user will need to provide. This explanation MUST be in {lang_name}.
+1.  **تحليل وتلخيص:** اقرأ النموذج بالكامل لفهم غرضه. بعد ذلك، قم بإنشاء ملخص مفيد (عدة جمل) **باللغة العربية فقط**. يجب أن يحقق الملخص توازنًا بين الإيجاز وتوفير المعلومات الهامة. يجب أن يتضمن الملخص:
+    - الغرض الرئيسي للنموذج (مثال: "هذا طلب للحصول على منحة دراسية...").
+    - أي جهات أو مؤسسات أو شروط رئيسية مذكورة بالفعل في النص (مثال: "...مقدمة من ITIDA و NTI..."، "...تتضمن شرطًا جزائيًا في حالة الغياب...").
+    - الفئات العامة للمعلومات التي سيحتاج المستخدم إلى تقديمها (مثال: "...سيُطلب منك تقديم تفاصيل شخصية ومعلومات الاتصال وبياناتك الأكاديمية.").
+    - الهدف هو إعطاء المستخدم إحساسًا جيدًا بسياق النموذج دون قراءة كل كلمة فيه.
 
-Return a single, valid JSON object with the following structure and nothing else. Do not wrap it in markdown.
-{{
-  "explanation": "The explanation you generated in {lang_name}.",
+2.  **تحديد الحقول القابلة للتعبئة:** لكل مربع مرقم (1، 2، 3، إلخ) يمثل مكانًا للكتابة للمستخدم:
+    - ابحث عن التسمية النصية أو الوصف المقابل بالقرب منه.
+    - **حدد ما إذا كان المربع صالحًا بناءً على السياق:** قم بتحليل التسمية والنص المحيط لفهم الغرض من الحقل.
+        - يعتبر الحقل **غير صالح** إذا كان النص يشير إلى أنه "للاستخدام الرسمي فقط"، أو مثال، أو مجرد تعليمة، أو إذا كان يحتوي بالفعل على قيمة محددة.
+        - يعتبر الحقل **صالحًا** إذا كان غرضه هو الحصول على معلومات من المستخدم بوضوح (مثل: "الاسم"، "العنوان"، "التوقيع").
+        - **مربعات الاختيار:** تكون مربعات الاختيار **صالحة** دائمًا تقريبًا. اجعلها غير صالحة فقط إذا لم تكن عنصرًا تفاعليًا بشكل واضح.
+    - احتفظ بنص التسمية كما هو مكتوب في النموذج تمامًا، دون ترجمة.
+
+3.  **تنسيق الإخراج:** يجب أن يكون الإخراج كائن JSON واحد فقط، بدون أي نص قبله أو بعده.
+
+    ```json
+    {{
+      "explanation": "ملخصك المفيد والموجز باللغة العربية.",
+      "fields": [
+        {{ "id": 1, "label": "نص المربع 1", "valid": true }},
+        {{ "id": 2, "label": "نص المربع 2", "valid": false }}
+      ]
+    }}
+    ```"""
+            else:
+                prompt = f"""You are an intelligent form assistant, specifically designed to help a visually impaired user. Your primary goal is to provide a clear and concise understanding of the form.
+
+1.  **Analyze and Summarize:** Read the entire form to understand its purpose. Then, generate a helpful summary (a few sentences) in **{lang_name} only**. Achieve a balance between being concise and informative. The summary should include:
+    - The main purpose of the form (e.g., "This is an application for a scholarship...").
+    - Any important entities, organizations, or key conditions already mentioned in the text (e.g., "...offered by ITIDA and NTI...", "...it includes a penalty for absence...").
+    - The general categories of information the user will need to provide (e.g., "...you will be asked for personal, contact, and academic details.").
+    - The goal is to give the user a good sense of the form's context without reading every single word.
+
+2.  **Identify Fillable Fields:** For each numbered box (1, 2, 3, etc.) that represents a place for the user to write:
+    - Find the corresponding text label or description near it.
+    - **Determine if the box is valid based on CONTEXT:** Analyze the label and surrounding text to understand the field's purpose.
+        - A field is **invalid** if the text implies it is for official use, an example, an instruction, or if it already contains a definitive value.
+        - A field is **valid** if its purpose is clearly to capture information from the user (e.g., "Name", "Address", "Signature").
+        - **Checkboxes:** A checkbox is almost always **valid**. Only mark it as invalid if it is clearly not an interactive element.
+    - Keep the label text exactly as it is written in the form, without translation.
+
+3.  **Format your response strictly as a single JSON object with no other text before or after it.**
+
+    ```json
+    {{
+      "explanation": "Your helpful, concise summary in {lang_name}.",
   "fields": [
-    {{ "id": 1, "label": "The label for box 1" }},
-    {{ "id": 2, "label": "The label for box 2" }}
-  ]
-}}
-"""
-            # Pass the PIL Image directly to Gemini
-            response = self.form_model.generate_content(
-                [prompt, image],
+        {{ "id": 1, "label": "Text for box 1", "valid": true }},
+        {{ "id": 2, "label": "Text for box 2", "valid": false }}
+      ]
+    }}
+    ```"""
+
+            image_part = {"mime_type": "image/png", "data": img_str}
+            response = self.model.generate_content(
+                [prompt, image_part],
+                generation_config=genai.GenerationConfig(
+                    temperature=0,
+                    candidate_count=1,
+                    top_k=1,
+                    top_p=0.1,
+                    max_output_tokens=9000
+                ),
                 stream=False
             )
-            
-            # Check if response is valid
-            if not response or not response.text:
-                print("Empty response from Gemini in get_form_details")
+            if not response.candidates or response.candidates[0].finish_reason.name != "STOP":
                 return None, None
-            
-            result = response.text.strip()
-            print(f"Raw Gemini response in get_form_details: {result[:200]}...")  # Log for debugging
-            
-            # Clean the response - remove markdown formatting if present
-            if result.startswith("```json"):
-                result = result[7:]
-            if result.startswith("```"):
-                result = result[3:]
-            if result.endswith("```"):
-                result = result[:-3]
-            result = result.strip()
-            
-            # Try to parse JSON
-            try:
-                parsed_json = json.loads(result)
-            except json.JSONDecodeError as json_err:
-                print(f"JSON decode error in get_form_details: {json_err}")
-                print(f"Problematic response: {result}")
-                return None, None
-            
+            response_text = response.text.strip().replace("```json", "").replace("```", "").strip()
+            parsed_json = json.loads(response_text)
             explanation = parsed_json.get("explanation")
             fields = parsed_json.get("fields")
-
             if isinstance(fields, list) and explanation:
                 return explanation, fields
-            
             return None, None
-
-        except Exception as e:
-            print(f"Error in Gemini service: {e}")
+        except (json.JSONDecodeError, Exception) as e:
             return None, None
 
     # =============================================================================
@@ -129,7 +204,7 @@ Return a single, valid JSON object with the following structure and nothing else
             اجعل الرد خالي من اي ترحيب
             """
 
-            response = self.currency_model.generate_content([prompt, image])
+            response = self.model.generate_content([prompt, image])
             return response.text
 
         except Exception as e:
@@ -144,7 +219,7 @@ Return a single, valid JSON object with the following structure and nothing else
         تحليل المستند بالكامل باستخدام Gemini AI
         """
         try:
-            if not self.document_model:
+            if not self.model:
                 return self._create_fallback_analysis(document_data, language)
 
             # Prepare slides data for analysis
@@ -162,7 +237,7 @@ Return a single, valid JSON object with the following structure and nothing else
             prompt = self._create_bulk_analysis_prompt(slides_data, language)
 
             # Get AI analysis
-            response = self.document_model.generate_content(prompt)
+            response = self.model.generate_content(prompt)
             analysis_result = self._parse_bulk_analysis_response(response.text, language)
 
             return analysis_result
@@ -230,7 +305,7 @@ Return a single, valid JSON object with the following structure and nothing else
     def analyze_page_image(self, image_base64: str, language: str = "arabic") -> str:
         """تحليل صورة الصفحة باستخدام الذكاء الاصطناعي"""
         try:
-            if not self.vision_model:
+            if not self.model:
                 return "خدمة تحليل الصور غير متوفرة حالياً" if language == "arabic" else "Image analysis service is currently unavailable"
             
             if language == "arabic":
@@ -246,7 +321,7 @@ Return a single, valid JSON object with the following structure and nothing else
                 "data": image_base64
             }
             
-            response = self.vision_model.generate_content([prompt, image_part])
+            response = self.model.generate_content([prompt, image_part])
             return response.text
             
         except Exception as e:
@@ -281,216 +356,273 @@ Return a single, valid JSON object with the following structure and nothing else
                     slides_text += f"Notes: {slide['notes']}\n"
 
         if language == "arabic":
-            prompt_header = f"أحلل هذا العرض التقديمي بالكامل. العرض يحتوي على {len(slides_data)} شريحة."
-            json_instruction = "أعطني فقط JSON بدون أي نص إضافي."
-        else:
-            prompt_header = f"Analyze this presentation completely. The presentation contains {len(slides_data)} slides."
-            json_instruction = "Return only JSON with no additional text."
-
-        prompt = f"""{prompt_header}
+            prompt = f"""
+تحليل شامل للعرض التقديمي:
 
 {slides_text}
 
-Return analysis for each slide in the following JSON format:
+قم بتحليل العرض التقديمي وأعطني:
+1. ملخص عام للمحتوى
+2. النقاط الرئيسية
+3. الموضوعات المطروحة
+4. أي استنتاجات أو توصيات
 
-{{
-  "presentation_summary": "Brief summary of the entire presentation",
-  "total_slides": {len(slides_data)},
-  "slides_analysis": [
-    {{
-      "slide_number": 1,
-      "title": "Slide title",
-      "original_text": "Original slide text",
-      "explanation": "brief description",
-      "key_points": ["Key point 1", "Key point 2"],
-      "slide_type": "content",
-      "importance_level": "medium"
-    }}
-  ]
-}}
+الرد باللغة العربية:
+"""
+        else:
+            prompt = f"""
+Comprehensive Presentation Analysis:
 
-{json_instruction}"""
+{slides_text}
+
+Analyze this presentation and provide:
+1. General summary of content
+2. Key points
+3. Topics covered
+4. Any conclusions or recommendations
+
+Respond in English:
+"""
 
         return prompt
 
     def _parse_bulk_analysis_response(self, response_text: str, language: str) -> Dict[str, Any]:
-        """تحليل استجابة الذكاء الاصطناعي"""
+        """تحليل استجابة Gemini وتحويلها إلى تنسيق منظم"""
         try:
-            # Clean the response
-            response_text = response_text.strip()
-
-            # Remove markdown code blocks if present
-            if response_text.startswith("```json"):
-                response_text = response_text[7:]
-            if response_text.startswith("```"):
-                response_text = response_text[3:]
-            if response_text.endswith("```"):
-                response_text = response_text[:-3]
-
-            # Parse JSON
-            analysis_data = json.loads(response_text.strip())
-
-            # Validate structure
-            if "slides_analysis" not in analysis_data:
-                raise ValueError("Missing slides_analysis in response")
-
-            return analysis_data
-
-        except json.JSONDecodeError as e:
-            logger.error(f"JSON parsing error: {e}")
-            return self._create_fallback_analysis_from_text(response_text, language)
+            # تقسيم النص إلى أقسام
+            sections = response_text.split('\n\n')
+            
+            result = {
+                "summary": "",
+                "key_points": [],
+                "topics": [],
+                "conclusions": "",
+                "full_analysis": response_text
+            }
+            
+            # استخراج المعلومات من النص
+            for section in sections:
+                if section.strip():
+                    lines = section.strip().split('\n')
+                    if len(lines) > 1:
+                        result["key_points"].extend([line.strip() for line in lines[1:] if line.strip()])
+                    elif len(lines) == 1:
+                        if not result["summary"]:
+                            result["summary"] = lines[0].strip()
+                        else:
+                            result["conclusions"] = lines[0].strip()
+            
+            return result
+            
         except Exception as e:
-            logger.error(f"Analysis parsing error: {e}")
+            logger.error(f"Error parsing bulk analysis response: {e}")
             return self._create_fallback_analysis_from_text(response_text, language)
 
     def _create_fallback_analysis(self, document_data: Dict[str, Any], language: str) -> Dict[str, Any]:
-        """إنشاء تحليل احتياطي في حالة فشل التحليل الأساسي"""
+        """إنشاء تحليل احتياطي في حالة فشل Gemini"""
+        try:
+            pages = document_data.get("pages", [])
+            total_pages = len(pages)
+            
+            # استخراج النصوص
+            all_text = []
+            for page in pages:
+                if page.get("text"):
+                    all_text.append(page["text"])
+            
+            combined_text = " ".join(all_text)
 
-        if language == "arabic":
-            summary_text = "تم إنشاء تحليل أساسي للمستند"
-            slide_explanation_template = "هذه هي الصفحة رقم {i} من المستند."
-            content_text = "محتوى الصفحة"
-            slide_type = "محتوى"
-            importance = "متوسط"
-            slide_title_template = "الصفحة {i}"
-        else:
-            summary_text = "Basic document analysis generated"
-            slide_explanation_template = "This is page {i} of the document."
-            content_text = "Page content"
-            slide_type = "content"
-            importance = "medium"
-            slide_title_template = "Page {i}"
-
-        slides_analysis = []
-        for i, page in enumerate(document_data["pages"], 1):
-            slide_analysis = {
-                "slide_number": i,
-                "title": page.get("title", slide_title_template.format(i=i)),
-                "original_text": page.get("text", content_text),
-                "explanation": slide_explanation_template.format(i=i),
-                "key_points": [content_text],
-                "slide_type": slide_type,
-                "importance_level": importance
-            }
-            slides_analysis.append(slide_analysis)
-
-        return {
-            "presentation_summary": summary_text,
-            "total_slides": len(document_data["pages"]),
-            "slides_analysis": slides_analysis
-        }
+            if language == "arabic":
+                return {
+                    "summary": f"هذا مستند يحتوي على {total_pages} صفحة. يتضمن المحتوى معلومات متنوعة.",
+                    "key_points": [f"الصفحة {i+1}: {page.get('title', 'بدون عنوان')}" for i, page in enumerate(pages)],
+                    "topics": ["محتوى عام", "معلومات متنوعة"],
+                    "conclusions": "تم استخراج المحتوى بنجاح.",
+                    "full_analysis": combined_text[:1000] + "..." if len(combined_text) > 1000 else combined_text
+                }
+            else:
+                return {
+                    "summary": f"This document contains {total_pages} pages with various information.",
+                    "key_points": [f"Page {i+1}: {page.get('title', 'No title')}" for i, page in enumerate(pages)],
+                    "topics": ["General content", "Various information"],
+                    "conclusions": "Content extracted successfully.",
+                    "full_analysis": combined_text[:1000] + "..." if len(combined_text) > 1000 else combined_text
+                }
+                
+        except Exception as e:
+            logger.error(f"Error creating fallback analysis: {e}")
+            return self._create_fallback_analysis_from_text("", language)
 
     def _create_fallback_analysis_from_text(self, response_text: str, language: str) -> Dict[str, Any]:
-        """إنشاء تحليل احتياطي من النص المُستلم"""
-        
+        """إنشاء تحليل احتياطي من النص المعطى"""
         if language == "arabic":
-            summary_text = f"تحليل أساسي: {response_text[:200]}..."
-            slide_explanation = "تحليل أساسي للصفحة"
-            content_text = "محتوى الصفحة"
-            slide_type = "محتوى"
-            importance = "متوسط"
+            return {
+                "summary": "تم استخراج المحتوى بنجاح.",
+                "key_points": ["المحتوى متاح للمراجعة"],
+                "topics": ["محتوى عام"],
+                "conclusions": "انتهى التحليل.",
+                "full_analysis": response_text or "لا يوجد محتوى متاح."
+            }
         else:
-            summary_text = f"Basic analysis: {response_text[:200]}..."
-            slide_explanation = "Basic page analysis"
-            content_text = "Page content"
-            slide_type = "content"
-            importance = "medium"
-
-        # إنشاء تحليل واحد كمثال
-        slides_analysis = [{
-            "slide_number": 1,
-            "title": "Page 1",
-            "original_text": content_text,
-            "explanation": slide_explanation,
-            "key_points": [content_text],
-            "slide_type": slide_type,
-            "importance_level": importance
-        }]
-
-        return {
-            "presentation_summary": summary_text,
-            "total_slides": 1,
-            "slides_analysis": slides_analysis
-        }
+            return {
+                "summary": "Content extracted successfully.",
+                "key_points": ["Content available for review"],
+                "topics": ["General content"],
+                "conclusions": "Analysis completed.",
+                "full_analysis": response_text or "No content available."
+            }
 
     def check_image_quality(self, image: Image.Image, language: str = "ar") -> Tuple[bool, str]:
         """
-        Check if the uploaded image is suitable for form analysis.
-        Returns (is_suitable, feedback_message)
+        يتحقق من جودة الصورة باستخدام Gemini
         """
         try:
-            # Check if model is available
-            if not self.form_model:
-                fallback_message = "خدمة فحص جودة الصورة غير متاحة حالياً." if language == "ar" else "Image quality check service is currently unavailable."
-                return False, fallback_message
+            buffered = io.BytesIO()
+            image.save(buffered, format="PNG")
+            img_str = base64.b64encode(buffered.getvalue()).decode('utf-8')
+            
+            if language == "ar":
+                prompt = """
+تحقق من جودة هذه الصورة للتأكد من أنها مناسبة لتحليل النماذج.
 
-            lang_instruction = "Arabic" if language == "ar" else "English"
+أجب بـ JSON فقط:
+{
+  "quality_good": true/false,
+  "message": "رسالة قصيرة عن جودة الصورة"
+}
 
-            prompt = f"""
-You are helping visually impaired users take better photos of forms and documents.
+معايير الجودة:
+- جيدة: النص واضح ومقروء، الهيكل مرئي
+- سيئة: ضبابية، مظلمة/مضيئة جداً، نص غير مقروء
+"""
+            else:
+                prompt = """
+Check the quality of this image to ensure it's suitable for form analysis.
 
-Analyze this image and check if it's suitable for form analysis. Consider:
-1. Image clarity and sharpness
-2. Lighting conditions  
-3. Document visibility and completeness
-4. Whether it's actually a form/document
+Respond with JSON only:
+{
+  "quality_good": true/false,
+  "message": "Brief message about image quality"
+}
 
-Respond with a JSON object:
-{{
-  "is_suitable": true/false,
-  "feedback": "Short, helpful message in {lang_instruction}"
-}}
+Quality criteria:
+- Good: Text clearly readable, structure visible
+- Bad: Blurry, too dark/bright, unreadable text
+"""
+            
+            image_part = {"mime_type": "image/png", "data": img_str}
+            response = self.model.generate_content(
+                [prompt, image_part],
+                generation_config=genai.GenerationConfig(
+                    temperature=0,
+                    candidate_count=1,
+                    max_output_tokens=500
+                )
+            )
+            
+            response_text = response.text.strip().replace("```json", "").replace("```", "").strip()
+            result = json.loads(response_text)
+            
+            return result.get("quality_good", True), result.get("message", "تم فحص الصورة" if language == "ar" else "Image checked")
+            
+        except Exception as e:
+            logger.error(f"Error checking image quality: {e}")
+            fallback_msg = "خطأ في فحص جودة الصورة" if language == "ar" else "Error checking image quality"
+            return True, fallback_msg 
 
-Feedback guidelines:
-- Keep it SHORT (maximum 2-3 sentences)
-- If suitable: Simple confirmation like "الصورة واضحة ومناسبة للتحليل" or "Image is clear and ready for analysis"
-- If not suitable: Give ONE main problem and ONE simple solution
-- Use simple, direct language
-- Be encouraging and supportive
+    def check_image_quality_with_language(self, image: Image.Image, language_direction: str) -> Tuple[bool, str]:
+        """
+        Check image quality with user-specified language direction
+        Returns (quality_good, quality_message)
+        """
+        try:
+            buffered = io.BytesIO()
+            image.save(buffered, format="PNG")
+            img_str = base64.b64encode(buffered.getvalue()).decode('utf-8')
+            
+            # Set language for response
+            if language_direction == 'rtl':
+                prompt = """
+تحليل جودة الصورة للنموذج العربي:
 
-The feedback MUST be in {lang_instruction} language only.
+قيم جودة هذه الصورة لتحليل النماذج واكتب ردك باللغة العربية فقط.
+
+**معايير التقييم:**
+- مقبول: مشاكل إضاءة بسيطة، ميلان خفيف، النص مقروء
+- يحتاج تحسين: الصورة مقطوعة بشكل كبير، النص مشوش جداً، ميلان شديد، إضاءة سيئة جداً
+
+أرجع JSON فقط:
+
+```json
+{
+  "quality_good": true أو false,
+  "quality_message": "تقييم مختصر ونصائح بالعربية"
+}
+```
+
+أمثلة للرسائل:
+- "الصورة واضحة ومناسبة للتحليل"
+- "الصورة مقبولة. نصيحة: حسن الإضاءة قليلاً"
+- "الصورة تحتاج تحسين. جرب: إضاءة أفضل وتعديل زاوية التصوير"
+
+لا تكن صارماً جداً على العيوب الصغيرة.
+"""
+            else:
+                prompt = """
+Assess image quality for English form analysis:
+
+Evaluate this image for form analysis and respond in English only.
+
+**Assessment Criteria:**
+- ACCEPTABLE: Minor lighting issues, slight tilt, readable text
+- NEEDS IMPROVEMENT: Significantly cropped, very blurry text, major rotation, very poor lighting
+
+Return JSON only:
+
+```json
+{
+  "quality_good": true or false,
+  "quality_message": "Brief assessment and tips in English"
+}
+```
+
+Example messages:
+- "Image is clear and suitable for analysis"
+- "Image is acceptable. Tip: improve lighting slightly"
+- "Image needs improvement. Try: better lighting and straighten the form"
+
+Don't be overly strict on minor imperfections.
 """
 
-            # Pass the PIL Image directly to Gemini
-            response = self.form_model.generate_content(
-                [prompt, image],
+            image_part = {"mime_type": "image/png", "data": img_str}
+            response = self.model.generate_content(
+                [prompt, image_part],
+                generation_config=genai.GenerationConfig(
+                    temperature=0,
+                    candidate_count=1,
+                    top_k=1,
+                    top_p=0.1,
+                    max_output_tokens=1000
+                ),
                 stream=False
             )
             
-            # Check if response is valid
-            if not response or not response.text:
-                print("Empty response from Gemini")
-                fallback_message = "لم أتمكن من تحليل الصورة. يرجى المحاولة مرة أخرى." if language == "ar" else "Could not analyze the image. Please try again."
-                return False, fallback_message
+            if not response.candidates or response.candidates[0].finish_reason.name != "STOP":
+                fallback_msg = "تم فحص الصورة" if language_direction == 'rtl' else "Image checked"
+                return True, fallback_msg
+                
+            response_text = response.text.strip().replace("```json", "").replace("```", "").strip()
             
-            result = response.text.strip()
-            print(f"Raw Gemini response: {result[:200]}...")  # Log first 200 chars for debugging
-            
-            # Clean the response - remove markdown formatting if present
-            if result.startswith("```json"):
-                result = result[7:]
-            if result.startswith("```"):
-                result = result[3:]
-            if result.endswith("```"):
-                result = result[:-3]
-            result = result.strip()
-            
-            # Try to parse JSON
             try:
-                parsed_json = json.loads(result)
-            except json.JSONDecodeError as json_err:
-                print(f"JSON decode error: {json_err}")
-                print(f"Problematic response: {result}")
-                # Provide a fallback response
-                fallback_message = "الصورة غير واضحة. تأكد من الإضاءة الجيدة وثبات اليد." if language == "ar" else "Image unclear. Ensure good lighting and steady hand."
-                return False, fallback_message
+                parsed_json = json.loads(response_text)
+            except json.JSONDecodeError as json_error:
+                return True, "Image analysis completed"
             
-            is_suitable = parsed_json.get("is_suitable", False)
-            feedback = parsed_json.get("feedback", "Unable to analyze image quality.")
-
-            return is_suitable, feedback
-
-        except Exception as e:
-            print(f"Error in image quality check: {e}")
-            fallback_message = "حدث خطأ في فحص جودة الصورة. يرجى المحاولة مرة أخرى." if language == "ar" else "Error checking image quality. Please try again."
-            return False, fallback_message 
+            quality_good = parsed_json.get("quality_good", True)
+            quality_message = parsed_json.get("quality_message", "تم فحص الصورة" if language_direction == 'rtl' else "Image checked")
+            
+            return quality_good, quality_message
+            
+        except (json.JSONDecodeError, Exception) as e:
+            fallback_msg = "خطأ في فحص جودة الصورة" if language_direction == 'rtl' else "Error checking image quality"
+            return True, fallback_msg 

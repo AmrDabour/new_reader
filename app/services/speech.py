@@ -14,17 +14,17 @@ class SpeechService:
         try:
             # Configure genai with the key from settings
             genai.configure(api_key=settings.google_ai_api_key)
-            self.multimodal_model = genai.GenerativeModel("gemini-2.5-flash")
-            self.tts_model = genai.GenerativeModel("gemini-2.5-flash-preview-tts")
+            self.multimodal_model = genai.GenerativeModel(settings.gemini_model)
+            self.tts_model = genai.GenerativeModel(settings.gemini_tts_model)
             self.is_available = True
         except Exception as e:
             self.multimodal_model = None
             self.tts_model = None
             self.is_available = False
-            print(f"Fatal: Could not initialize Gemini models for speech: {e}")
+            # Fatal error initializing Gemini models
 
     def text_to_speech(self, text: str, provider: str = "gemini"):
-        """Converts text to speech using the gemini-2.5-flash-preview-tts model."""
+        """Converts text to speech using the configured Gemini TTS model."""
         if provider != "gemini" or not self.is_available or not self.tts_model or not text:
             return None, None
         
@@ -54,10 +54,8 @@ class SpeechService:
             
             return wav_buffer.getvalue(), "audio/wav"
         except google_exceptions.ResourceExhausted as e:
-            print(f"Gemini API Quota Exceeded for TTS: {e}")
             return "QUOTA_EXCEEDED", "error"
         except Exception as e:
-            print(f"Gemini Text-to-Speech Error: {e}")
             return None, None
 
     def speech_to_text(self, audio_bytes: bytes, language_code: str = 'en'):
@@ -77,8 +75,6 @@ class SpeechService:
             return response.text.strip()
             
         except google_exceptions.ResourceExhausted as e:
-            print(f"Gemini API Quota Exceeded: {e}")
             return "QUOTA_EXCEEDED"
         except Exception as e:
-            print(f"Gemini Speech-to-Text Error: {e}")
             return None 

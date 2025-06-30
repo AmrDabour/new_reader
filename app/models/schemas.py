@@ -7,9 +7,12 @@ from typing import List, Dict, Any, Optional
 
 # --- Image Quality Check Endpoint ---
 class ImageQualityResponse(BaseModel):
-    is_suitable: bool
-    feedback: str
-    status: str = "success"
+    language_direction: str
+    quality_good: bool
+    quality_message: str
+    image_width: int
+    image_height: int
+    session_id: str  # Added for session management
 
 # --- Main Analysis Endpoint ---
 class UIField(BaseModel):
@@ -22,15 +25,15 @@ class FormAnalysisResponse(BaseModel):
     fields: List[UIField]
     form_explanation: str
     language_direction: str
-    annotated_image: str # base64 encoded image
     image_width: int
     image_height: int
+    session_id: str  # Added for session management
 
 # --- Annotation Endpoint ---
 class AnnotateImageRequest(BaseModel):
     original_image_b64: str
     texts_dict: Dict[str, Any]
-    ui_fields: List[UIField] 
+    ui_fields: List[UIField]
 
 # =============================================================================
 # MONEY READER SCHEMAS
