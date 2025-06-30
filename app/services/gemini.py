@@ -38,10 +38,9 @@ class GeminiService:
         explanation of the form.
         """
         try:
-            # Convert image to bytes
-            buffered = io.BytesIO()
-            image.save(buffered, format="PNG")
-            image_bytes = buffered.getvalue()
+            # Check if model is available
+            if not self.form_model:
+                return None, None
 
             lang_name = "Arabic" if language == 'rtl' else "English"
 
@@ -63,8 +62,9 @@ Return a single, valid JSON object with the following structure and nothing else
   ]
 }}
 """
+            # Pass the PIL Image directly to Gemini
             response = self.form_model.generate_content(
-                [prompt, image_bytes],
+                [prompt, image],
                 stream=False
             )
             
@@ -401,11 +401,6 @@ Return analysis for each slide in the following JSON format:
             if not self.form_model:
                 fallback_message = "خدمة فحص جودة الصورة غير متاحة حالياً." if language == "ar" else "Image quality check service is currently unavailable."
                 return False, fallback_message
-            
-            # Convert image to bytes
-            buffered = io.BytesIO()
-            image.save(buffered, format="PNG")
-            image_bytes = buffered.getvalue()
 
             lang_instruction = "Arabic" if language == "ar" else "English"
 
@@ -436,8 +431,9 @@ Guidelines for feedback:
 The feedback must be in {lang_instruction} language.
 """
 
+            # Pass the PIL Image directly to Gemini
             response = self.form_model.generate_content(
-                [prompt, image_bytes],
+                [prompt, image],
                 stream=False
             )
             
