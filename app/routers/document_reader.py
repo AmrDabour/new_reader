@@ -53,15 +53,32 @@ async def upload_document(
                 "presentation_summary": "تم إنشاء ملخص تجريبي للمستند" if language == "arabic" else "Test document summary created",
                 "slides_analysis": [
                     {
-                        "title": "Test Page",
-                        "original_text": "Test content",
-                        "explanation": "This is a test page",
-                        "key_points": ["Test point 1", "Test point 2"],
+                        "title": page.get("title", f"Page {i+1}"),
+                        "original_text": page.get("text", ""),
+                        "explanation": "No explanation (fallback)",
+                        "key_points": [],
                         "slide_type": "content",
                         "importance_level": "medium"
-                    }
+                    } for i, page in enumerate(document_data.get("pages", []))
                 ]
             }
+
+        # Ensure slides_analysis always exists and matches total_pages
+        if "slides_analysis" not in analysis_result or not isinstance(analysis_result["slides_analysis"], list):
+            analysis_result["slides_analysis"] = []
+        total_pages = len(document_data.get("pages", []))
+        if len(analysis_result["slides_analysis"]) < total_pages:
+            # Fill missing slides with fallback
+            for i in range(len(analysis_result["slides_analysis"]), total_pages):
+                page = document_data["pages"][i]
+                analysis_result["slides_analysis"].append({
+                    "title": page.get("title", f"Page {i+1}"),
+                    "original_text": page.get("text", ""),
+                    "explanation": "No explanation (auto-filled)",
+                    "key_points": [],
+                    "slide_type": "content",
+                    "importance_level": "medium"
+                })
 
         # إنشاء session ID للمستند
         session_id = f"doc_{len(document_sessions) + 1}"
