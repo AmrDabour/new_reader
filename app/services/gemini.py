@@ -99,7 +99,7 @@ Keep message concise and helpful. Don't be overly strict on minor imperfections.
 
             # --- Language-Specific Prompts ---
             if language == 'rtl':
-            prompt = f"""
+                prompt = f"""
 أنت مساعد ذكي متخصص في تحليل النماذج، ومصمم خصيصًا لمساعدة مستخدم كفيف. هدفك الأساسي هو تقديم فهم واضح وموجز للنموذج.
 
 1.  **تحليل وتلخيص:** اقرأ النموذج بالكامل لفهم غرضه. بعد ذلك، قم بإنشاء ملخص مفيد (عدة جمل) **باللغة العربية فقط**. يجب أن يحقق الملخص توازنًا بين الإيجاز وتوفير المعلومات الهامة. يجب أن يتضمن الملخص:
@@ -423,16 +423,14 @@ Respond in English:
         try:
             pages = document_data.get("pages", [])
             total_pages = len(pages)
-            
             # استخراج النصوص
             all_text = []
             for page in pages:
                 if page.get("text"):
                     all_text.append(page["text"])
-            
             combined_text = " ".join(all_text)
 
-        if language == "arabic":
+            if language == "arabic":
                 return {
                     "summary": f"هذا مستند يحتوي على {total_pages} صفحة. يتضمن المحتوى معلومات متنوعة.",
                     "key_points": [f"الصفحة {i+1}: {page.get('title', 'بدون عنوان')}" for i, page in enumerate(pages)],
@@ -440,15 +438,14 @@ Respond in English:
                     "conclusions": "تم استخراج المحتوى بنجاح.",
                     "full_analysis": combined_text[:1000] + "..." if len(combined_text) > 1000 else combined_text
                 }
-        else:
-        return {
+            else:
+                return {
                     "summary": f"This document contains {total_pages} pages with various information.",
                     "key_points": [f"Page {i+1}: {page.get('title', 'No title')}" for i, page in enumerate(pages)],
                     "topics": ["General content", "Various information"],
                     "conclusions": "Content extracted successfully.",
                     "full_analysis": combined_text[:1000] + "..." if len(combined_text) > 1000 else combined_text
                 }
-                
         except Exception as e:
             logger.error(f"Error creating fallback analysis: {e}")
             return self._create_fallback_analysis_from_text("", language)
@@ -464,13 +461,13 @@ Respond in English:
                 "full_analysis": response_text or "لا يوجد محتوى متاح."
             }
         else:
-        return {
+            return {
                 "summary": "Content extracted successfully.",
                 "key_points": ["Content available for review"],
                 "topics": ["General content"],
                 "conclusions": "Analysis completed.",
                 "full_analysis": response_text or "No content available."
-        }
+            }
 
     def check_image_quality(self, image: Image.Image, language: str = "ar") -> Tuple[bool, str]:
         """
@@ -625,4 +622,4 @@ Don't be overly strict on minor imperfections.
             
         except (json.JSONDecodeError, Exception) as e:
             fallback_msg = "خطأ في فحص جودة الصورة" if language_direction == 'rtl' else "Error checking image quality"
-            return True, fallback_msg 
+            return True, fallback_msg
