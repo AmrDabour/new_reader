@@ -51,7 +51,7 @@ app.add_middleware(
 )
 
 # Include routers
-app.include_router(form_analyzer.router, tags=["Form Analyzer"])
+app.include_router(form_analyzer.router)
 app.include_router(money_reader.router, prefix="/money", tags=["Money Reader"])
 app.include_router(document_reader.router, prefix="/document", tags=["Document Reader"])
 app.include_router(shared.router, tags=["Shared Services"])
