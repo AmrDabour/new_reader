@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 # Import routers for different services
 from app.routers import form_analyzer, money_reader, document_reader, shared
 from app.config import get_settings
+from app.services.keep_alive import keep_alive_service
 
 settings = get_settings()
 
@@ -29,10 +30,15 @@ async def lifespan(app: FastAPI):
     # Start background task for session cleanup
     cleanup_task = asyncio.create_task(cleanup_sessions_periodically())
     
+    # Start keep-alive service
+    base_url = str(settings.base_url).rstrip('/')
+    await keep_alive_service.start(f"{base_url}/health")
+    
     yield
     
     # Shutdown
     cleanup_task.cancel()
+    await keep_alive_service.stop()
 
 app = FastAPI(
     title="Insight - Unified AI Services API",
@@ -55,6 +61,11 @@ app.include_router(form_analyzer.router)
 app.include_router(money_reader.router, prefix="/money", tags=["Money Reader"])
 app.include_router(document_reader.router, prefix="/document", tags=["Document Reader"])
 app.include_router(shared.router, tags=["Shared Services"])
+
+@app.get("/health")
+async def health_check():
+    """نقطة نهاية للتحقق من صحة التطبيق"""
+    return {"status": "healthy", "timestamp": keep_alive_service.last_heartbeat}
 
 @app.get("/")
 async def root():

@@ -1,7 +1,22 @@
 from pydantic_settings import BaseSettings
 from functools import lru_cache
+import os
+
+def get_default_base_url() -> str:
+    """تحديد عنوان URL الافتراضي بناءً على بيئة التشغيل"""
+    # التحقق من وجود متغيرات بيئة GitHub CodeSpaces
+    if os.getenv("CODESPACES") == "true":
+        codespace_name = os.getenv("CODESPACE_NAME", "")
+        if codespace_name:
+            return f"https://{codespace_name}-{os.getenv('PORT', '10000')}.app.github.dev"
+    
+    # القيمة الافتراضية للتطوير المحلي
+    return "http://localhost:10000"
 
 class Settings(BaseSettings):
+    # Base URL for the application
+    base_url: str = None  # سيتم تحديده لاحقاً
+
     # Google AI Settings - will be loaded from GOOGLE_AI_API_KEY env var
     google_ai_api_key: str
 
@@ -33,6 +48,12 @@ class Settings(BaseSettings):
         # We can also load from a .env file for local development.
         env_file = ".env"
         env_file_encoding = "utf-8"
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # تعيين base_url إذا لم يتم تحديده
+        if not self.base_url:
+            self.base_url = get_default_base_url()
 
 @lru_cache()
 def get_settings():
