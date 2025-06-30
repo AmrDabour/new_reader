@@ -68,8 +68,30 @@ Return a single, valid JSON object with the following structure and nothing else
                 stream=False
             )
             
-            result = response.text
-            parsed_json = json.loads(result)
+            # Check if response is valid
+            if not response or not response.text:
+                print("Empty response from Gemini in get_form_details")
+                return None, None
+            
+            result = response.text.strip()
+            print(f"Raw Gemini response in get_form_details: {result[:200]}...")  # Log for debugging
+            
+            # Clean the response - remove markdown formatting if present
+            if result.startswith("```json"):
+                result = result[7:]
+            if result.startswith("```"):
+                result = result[3:]
+            if result.endswith("```"):
+                result = result[:-3]
+            result = result.strip()
+            
+            # Try to parse JSON
+            try:
+                parsed_json = json.loads(result)
+            except json.JSONDecodeError as json_err:
+                print(f"JSON decode error in get_form_details: {json_err}")
+                print(f"Problematic response: {result}")
+                return None, None
             
             explanation = parsed_json.get("explanation")
             fields = parsed_json.get("fields")
@@ -437,8 +459,33 @@ The feedback must be in {lang_instruction} language.
                 stream=False
             )
             
-            result = response.text
-            parsed_json = json.loads(result)
+            # Check if response is valid
+            if not response or not response.text:
+                print("Empty response from Gemini")
+                fallback_message = "لم أتمكن من تحليل الصورة. يرجى المحاولة مرة أخرى." if language == "ar" else "Could not analyze the image. Please try again."
+                return False, fallback_message
+            
+            result = response.text.strip()
+            print(f"Raw Gemini response: {result[:200]}...")  # Log first 200 chars for debugging
+            
+            # Clean the response - remove markdown formatting if present
+            if result.startswith("```json"):
+                result = result[7:]
+            if result.startswith("```"):
+                result = result[3:]
+            if result.endswith("```"):
+                result = result[:-3]
+            result = result.strip()
+            
+            # Try to parse JSON
+            try:
+                parsed_json = json.loads(result)
+            except json.JSONDecodeError as json_err:
+                print(f"JSON decode error: {json_err}")
+                print(f"Problematic response: {result}")
+                # Provide a fallback response
+                fallback_message = "تم استلام الصورة ولكن لم أتمكن من تحليلها بشكل كامل. يرجى التأكد من أن الصورة واضحة وتحتوي على نموذج أو مستند." if language == "ar" else "Image received but could not be fully analyzed. Please ensure the image is clear and contains a form or document."
+                return False, fallback_message
             
             is_suitable = parsed_json.get("is_suitable", False)
             feedback = parsed_json.get("feedback", "Unable to analyze image quality.")
