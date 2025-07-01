@@ -53,7 +53,7 @@ def clean_and_format_text(text: str) -> str:
     """
     if not text:
         return ""
-        
+
     # تحويل علامات التنسيق المكتوبة كنص إلى علامات حقيقية
     text = text.replace('\\n', '\n')
     text = text.replace('\\t', '\t')
@@ -62,79 +62,78 @@ def clean_and_format_text(text: str) -> str:
     # إزالة علامات التنسيق المتكررة
     text = re.sub(r'[\r\n]+', '\n', text)
     
-    # إزالة المسافات الزائدة في بداية ونهاية كل سطر
-    lines = [line.strip() for line in text.split('\n')]
+    # تقسيم النص إلى جمل
+    sentences = _split_into_sentences(text)
     
-    # إزالة الأسطر الفارغة في البداية والنهاية
-    while lines and not lines[0]:
-        lines.pop(0)
-    while lines and not lines[-1]:
-        lines.pop()
+    # تجميع الجمل في فقرات
+    paragraphs = _group_sentences_into_paragraphs(sentences)
     
-    # دمج الأسطر القصيرة التي تنتهي بدون علامات ترقيم
-    formatted_lines = []
-    current_line = ""
-    
-    for line in lines:
-        # تخطي الأسطر التي تحتوي على أرقام صفحات فقط
-        if re.match(r'^\d+$', line.strip()):
-            continue
-            
-        if not line:
-            if current_line:
-                formatted_lines.append(current_line)
-                current_line = ""
-            formatted_lines.append("")
-            continue
-            
-        # إذا كان السطر الحالي ينتهي بعلامة ترقيم أو كان طويلاً
-        if (current_line and 
-            (current_line[-1] in '.!?،؛:' or 
-             len(current_line) > 100 or
-             # لا تدمج الأسطر التي تبدأ بعلامات خاصة
-             line[0] in '•-*#' or
-             # لا تدمج العناوين
-             line.isupper() or
-             # لا تدمج الأسطر التي تبدأ بأرقام متبوعة بنقطة
-             re.match(r'^\d+\.', line)
-             )):
-            formatted_lines.append(current_line)
-            current_line = line
-        else:
-            if current_line:
-                current_line += ' ' + line
-            else:
-                current_line = line
-    
-    if current_line:
-        formatted_lines.append(current_line)
-    
-    # تجميع الأسطر مع مراعاة المسافات بين الفقرات
-    formatted_text = '\n\n'.join(
-        '\n'.join(group) 
-        for group in _group_lines(formatted_lines)
-    )
-    
-    return formatted_text.strip()
+    # تنسيق النص النهائي
+    return '\n\n'.join(paragraphs).strip()
 
-def _group_lines(lines: List[str]) -> List[List[str]]:
+def _split_into_sentences(text: str) -> List[str]:
     """
-    تجميع الأسطر في مجموعات (فقرات)
+    تقسيم النص إلى جمل مع الحفاظ على علامات الترقيم
     """
-    groups = []
-    current_group = []
+    # تنظيف المسافات الزائدة
+    text = ' '.join(text.split())
     
-    for line in lines:
-        if not line and current_group:
-            groups.append(current_group)
-            current_group = []
-        elif line:
-            current_group.append(line)
-            
-    if current_group:
-        groups.append(current_group)
+    # تقسيم النص إلى جمل
+    sentences = []
+    current_sentence = []
+    
+    # تقسيم النص إلى كلمات مع الحفاظ على علامات الترقيم
+    words = text.replace('\n', ' ').split(' ')
+    
+    for word in words:
+        current_sentence.append(word)
         
-    return groups
+        # التحقق من نهاية الجملة
+        if word and word[-1] in '.!?؟':
+            sentences.append(' '.join(current_sentence))
+            current_sentence = []
+    
+    # إضافة آخر جملة إذا كانت موجودة
+    if current_sentence:
+        sentences.append(' '.join(current_sentence))
+    
+    return sentences
+
+def _group_sentences_into_paragraphs(sentences: List[str]) -> List[str]:
+    """
+    تجميع الجمل في فقرات
+    """
+    paragraphs = []
+    current_paragraph = []
+    
+    for sentence in sentences:
+        # تنظيف الجملة
+        clean_sentence = sentence.strip()
+        if not clean_sentence:
+            continue
+            
+        # بدء فقرة جديدة للعناوين والقوائم
+        if (clean_sentence.isupper() or 
+            clean_sentence[0] in '•-*#' or 
+            re.match(r'^\d+\.', clean_sentence)):
+            if current_paragraph:
+                paragraphs.append(' '.join(current_paragraph))
+                current_paragraph = []
+            paragraphs.append(clean_sentence)
+            continue
+        
+        current_paragraph.append(clean_sentence)
+        
+        # إنشاء فقرة جديدة بعد عدد معين من الجمل
+        if len(current_paragraph) >= 5:
+            paragraphs.append(' '.join(current_paragraph))
+            current_paragraph = []
+    
+    # إضافة آخر فقرة إذا كانت موجودة
+    if current_paragraph:
+        paragraphs.append(' '.join(current_paragraph))
+    
+    return paragraphs
 
 def extract_paragraphs(text: str) -> List[str]:
     """
