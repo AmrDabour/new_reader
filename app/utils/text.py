@@ -54,6 +54,9 @@ def clean_and_format_text(text: str) -> str:
     if not text:
         return ""
 
+    # إزالة الأرقام المنفردة في بداية النص
+    text = re.sub(r'^\s*\d+\s+', '', text)
+
     # تحويل علامات التنسيق المكتوبة كنص إلى علامات حقيقية
     text = text.replace('\\n', '\n')
     text = text.replace('\\t', '\t')
@@ -68,8 +71,11 @@ def clean_and_format_text(text: str) -> str:
     # تجميع الجمل في فقرات
     paragraphs = _group_sentences_into_paragraphs(sentences)
     
-    # تنسيق النص النهائي
-    return '\n\n'.join(paragraphs).strip()
+    # تنظيف نهاية النص من علامات التنسيق
+    formatted_text = '\n\n'.join(paragraphs).strip()
+    formatted_text = re.sub(r'[\r\n]+$', '', formatted_text)
+    
+    return formatted_text
 
 def _split_into_sentences(text: str) -> List[str]:
     """
@@ -86,14 +92,19 @@ def _split_into_sentences(text: str) -> List[str]:
     words = text.replace('\n', ' ').split(' ')
     
     for word in words:
+        # تخطي الأرقام المنفردة
+        if re.match(r'^\d+$', word):
+            continue
+            
         current_sentence.append(word)
         
         # التحقق من نهاية الجملة
         if word and word[-1] in '.!?؟':
-            sentences.append(' '.join(current_sentence))
-            current_sentence = []
+            if current_sentence:  # تأكد من أن الجملة ليست فارغة
+                sentences.append(' '.join(current_sentence))
+                current_sentence = []
     
-    # إضافة آخر جملة إذا كانت موجودة
+    # إضافة آخر جملة إذا كانت موجودة وليست فارغة
     if current_sentence:
         sentences.append(' '.join(current_sentence))
     
@@ -110,6 +121,10 @@ def _group_sentences_into_paragraphs(sentences: List[str]) -> List[str]:
         # تنظيف الجملة
         clean_sentence = sentence.strip()
         if not clean_sentence:
+            continue
+            
+        # تخطي الأرقام المنفردة
+        if re.match(r'^\d+$', clean_sentence):
             continue
             
         # بدء فقرة جديدة للعناوين والقوائم
@@ -143,5 +158,5 @@ def extract_paragraphs(text: str) -> List[str]:
     cleaned_text = clean_and_format_text(text)
     # تقسيم النص إلى فقرات
     paragraphs = [p.strip() for p in cleaned_text.split('\n\n')]
-    # إزالة الفقرات الفارغة
-    return [p for p in paragraphs if p] 
+    # إزالة الفقرات الفارغة والأرقام المنفردة
+    return [p for p in paragraphs if p and not re.match(r'^\d+$', p)] 
