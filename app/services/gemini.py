@@ -717,3 +717,74 @@ Don't be overly strict on minor imperfections.
         except (json.JSONDecodeError, Exception) as e:
             fallback_msg = "خطأ في فحص جودة الصورة" if language_direction == 'rtl' else "Error checking image quality"
             return True, fallback_msg
+
+    def check_currency_image_quality(self, image: Image.Image) -> Tuple[bool, str]:
+        """
+        فحص جودة صورة العملة قبل التحليل
+        Returns (quality_good, quality_message)
+        """
+        try:
+            buffered = io.BytesIO()
+            image.save(buffered, format="PNG")
+            img_str = base64.b64encode(buffered.getvalue()).decode('utf-8')
+            
+            prompt = """
+فحص جودة صورة العملة:
+
+قيم جودة هذه الصورة لتحليل العملات النقدية واكتب ردك بالعربية.
+
+**معايير التقييم للعملات:**
+- مقبول: العملة مرئية وواضحة، يمكن قراءة الأرقام والنصوص، إضاءة مناسبة
+- يحتاج تحسين: العملة مشوشة جداً، الأرقام غير مقروءة، إضاءة سيئة، العملة مقطوعة من الصورة
+
+**ركز على:**
+- وضوح الأرقام على العملة
+- رؤية العملة كاملة في الإطار
+- جودة الإضاءة
+- حدة الصورة
+
+أرجع JSON فقط:
+
+```json
+{
+  "quality_good": true أو false,
+  "quality_message": "رسالة مختصرة عن جودة الصورة ونصائح للتحسين"
+}
+```
+
+أمثلة للرسائل:
+- "الصورة واضحة ومناسبة لتحليل العملة"
+- "الصورة مقبولة. نصيحة: حسن الإضاءة قليلاً"
+- "الصورة غير واضحة. أعد التصوير مع إضاءة أفضل وتأكد من وضوح الأرقام"
+- "العملة مقطوعة من الصورة. أعد التصوير مع تضمين العملة كاملة"
+
+كن دقيقاً في التقييم لأن تحليل العملة يتطلب وضوحاً عالياً.
+"""
+
+            image_part = {"mime_type": "image/png", "data": img_str}
+            response = self.model.generate_content(
+                [prompt, image_part],
+                generation_config=genai.GenerationConfig(
+                    temperature=0,
+                    candidate_count=1,
+                    max_output_tokens=1000
+                ),
+                stream=False
+            )
+            
+            if not response.candidates or response.candidates[0].finish_reason.name != "STOP":
+                return True, "تم فحص الصورة"
+                
+            response_text = response.text.strip().replace("```json", "").replace("```", "").strip()
+            
+            try:
+                parsed_json = json.loads(response_text)
+                quality_good = parsed_json.get("quality_good", True)
+                quality_message = parsed_json.get("quality_message", "تم فحص جودة الصورة")
+                return quality_good, quality_message
+            except json.JSONDecodeError:
+                return True, "تم فحص جودة الصورة"
+            
+        except Exception as e:
+            logger.error(f"Error checking currency image quality: {e}")
+            return True, "خطأ في فحص جودة الصورة"
