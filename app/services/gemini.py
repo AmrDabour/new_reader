@@ -17,6 +17,44 @@ class GeminiService:
     def __init__(self):
         self.model = genai.GenerativeModel(settings.gemini_model)
 
+    def remove_markdown_formatting(self, text: str) -> str:
+        """إزالة تنسيقات Markdown من النص"""
+        if not text:
+            return text
+        
+        # إزالة Bold formatting (**text** و __text__)
+        text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
+        text = re.sub(r'__(.*?)__', r'\1', text)
+        
+        # إزالة Headers (# ## ###)
+        text = re.sub(r'^#{1,6}\s*(.*)$', r'\1', text, flags=re.MULTILINE)
+        
+        # إزالة Links [text](url)
+        text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
+        
+        # إزالة Code blocks ```code```
+        text = re.sub(r'```[^`]*```', '', text, flags=re.DOTALL)
+        
+        # إزالة Inline code `code`
+        text = re.sub(r'`([^`]+)`', r'\1', text)
+        
+        # إزالة Strikethrough ~~text~~
+        text = re.sub(r'~~(.*?)~~', r'\1', text)
+        
+        # إزالة Italic formatting - لكن فقط إذا لم تكن جزءًا من قائمة
+        # تجنب النجوم في بداية السطر (قوائم) أو النجوم المتعددة
+        text = re.sub(r'(?<!^)(?<!\s)\*([^*\n]+?)\*(?!\s*\n)', r'\1', text, flags=re.MULTILINE)
+        text = re.sub(r'(?<!^)(?<!\s)_([^_\n]+?)_(?!\s*\n)', r'\1', text, flags=re.MULTILINE)
+        
+        # تحويل علامات النجوم في بداية الأسطر إلى علامات تعداد عادية
+        text = re.sub(r'^\s*\*\s+', '• ', text, flags=re.MULTILINE)
+        
+        # تنظيف المسافات الزائدة
+        text = re.sub(r'\n\s*\n', '\n\n', text)
+        text = text.strip()
+        
+        return text
+
     def detect_language_and_quality(self, image: Image.Image) -> Tuple[str, bool, str]:
         """
         Detects language direction and checks image quality
@@ -205,7 +243,10 @@ Keep message concise and helpful. Don't be overly strict on minor imperfections.
             """
 
             response = self.model.generate_content([prompt, image])
-            return response.text
+            
+            # إزالة تنسيقات Markdown من الرد
+            clean_response = self.remove_markdown_formatting(response.text)
+            return clean_response
 
         except Exception as e:
             return f"خطأ: {str(e)}"
@@ -322,7 +363,10 @@ Keep message concise and helpful. Don't be overly strict on minor imperfections.
             }
             
             response = self.model.generate_content([prompt, image_part])
-            return response.text
+            
+            # إزالة تنسيقات Markdown من الرد
+            clean_response = self.remove_markdown_formatting(response.text)
+            return clean_response
             
         except Exception as e:
             logger.error(f"Error analyzing page image: {e}")
@@ -369,7 +413,10 @@ Analyze the image and answer the question in detail and helpfully in English.
                     max_output_tokens=2000
                 )
             )
-            return response.text
+            
+            # إزالة تنسيقات Markdown من الرد
+            clean_response = self.remove_markdown_formatting(response.text)
+            return clean_response
             
         except Exception as e:
             logger.error(f"Error analyzing page with question: {e}")
