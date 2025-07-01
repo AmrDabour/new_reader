@@ -5,6 +5,7 @@ import os
 from PIL import Image
 from typing import Dict, List, Any
 import logging
+from app.utils.text import clean_and_format_text
 
 logger = logging.getLogger(__name__)
 
@@ -74,14 +75,15 @@ class DocumentProcessor:
                 # Convert to base64
                 image_base64 = self._image_to_base64(pil_image)
 
-                # Extract text from page
+                # Extract text from page and clean it
                 page_text = page.get_text()
+                cleaned_text = clean_and_format_text(page_text)
 
                 # Create page data
                 page_data = {
                     "page_number": page_num + 1,
                     "title": f"Page {page_num + 1}",
-                    "text": page_text.strip(),
+                    "text": cleaned_text,
                     "image_base64": image_base64,
                     "notes": "",
                 }
@@ -233,68 +235,22 @@ class DocumentProcessor:
             return ""
 
     def _extract_slide_text(self, slide) -> str:
-        """استخراج النص من شريحة PowerPoint"""
+        """استخراج النص من الشريحة"""
+        text_parts = []
+        
         try:
-            texts = []
-
-            # Iterate through all shapes in the slide
+            # Extract text from shapes
             for shape in slide.Shapes:
-                try:
-                    # Check if shape has TextFrame
-                    if hasattr(shape, "TextFrame") and shape.TextFrame is not None:
-                        # Method 1: Try to get text directly
-                        try:
-                            if hasattr(shape.TextFrame, "Text") and shape.TextFrame.Text:
-                                text_content = shape.TextFrame.Text.strip()
-                                if text_content:
-                                    texts.append(text_content)
-                                    continue
-                        except Exception as e:
-                            logger.debug(f"Direct text access failed: {str(e)}")
-
-                        # Method 2: Try to get text through paragraphs
-                        try:
-                            if hasattr(shape.TextFrame, "Paragraphs"):
-                                paragraph_texts = []
-                                paragraphs = shape.TextFrame.Paragraphs
-
-                                # Handle different ways paragraphs might be accessed
-                                if hasattr(paragraphs, "__len__"):
-                                    # If paragraphs is iterable
-                                    for paragraph in paragraphs:
-                                        if hasattr(paragraph, "Text") and paragraph.Text:
-                                            paragraph_texts.append(paragraph.Text.strip())
-                                elif hasattr(paragraphs, "Count"):
-                                    # If paragraphs has Count property
-                                    for i in range(paragraphs.Count):
-                                        paragraph = paragraphs[i]
-                                        if hasattr(paragraph, "Text") and paragraph.Text:
-                                            paragraph_texts.append(paragraph.Text.strip())
-
-                                if paragraph_texts:
-                                    texts.append("\n".join(paragraph_texts))
-                                    continue
-                        except Exception as e:
-                            logger.debug(f"Paragraph text access failed: {str(e)}")
-
-                        # Method 3: Try alternative text access methods
-                        try:
-                            # Check for other text properties
-                            if hasattr(shape, "AlternativeText") and shape.AlternativeText:
-                                texts.append(shape.AlternativeText.strip())
-                        except Exception as e:
-                            logger.debug(f"Alternative text access failed: {str(e)}")
-
-                except Exception as e:
-                    logger.debug(f"Error processing shape: {str(e)}")
-                    continue
-
-            # Return combined text or empty string
-            return "\n\n".join(texts) if texts else ""
-
+                if shape.HasTextFrame:
+                    text_frame = shape.TextFrame
+                    for para in text_frame.Paragraphs:
+                        text_parts.append(para.Text.strip())
         except Exception as e:
-            logger.error(f"Error extracting slide text: {str(e)}")
-            return ""
+            logger.warning(f"Error extracting text from shapes: {str(e)}")
+
+        # Clean and format the extracted text
+        combined_text = "\n".join(text_parts)
+        return clean_and_format_text(combined_text)
 
     def _image_to_base64(self, image: Image.Image) -> str:
         """تحويل صورة PIL إلى base64"""

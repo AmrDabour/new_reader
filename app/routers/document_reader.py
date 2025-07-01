@@ -9,6 +9,7 @@ from app.models.schemas import (
     AnalyzeDocumentResponse, SlideAnalysisResponse, DocumentSummaryResponse,
     NavigationRequest, NavigationResponse
 )
+from app.utils.text import clean_and_format_text, extract_paragraphs
 
 router = APIRouter()
 
@@ -130,15 +131,29 @@ async def get_page_analysis(session_id: str, page_number: int):
         page_data = session["document_data"]["pages"][page_index]
         page_analysis = session["analysis"]["slides_analysis"][page_index]
 
+        # Get original text and clean it
+        original_text = page_analysis.get("original_text", "")
+        cleaned_text = clean_and_format_text(original_text)
+        
+        # Extract paragraphs
+        paragraphs = extract_paragraphs(cleaned_text)
+        
+        # Calculate word count and estimated reading time
+        word_count = len(cleaned_text.split())
+        reading_time = round(word_count / 200, 1)  # Assuming average reading speed of 200 words per minute
+
         return SlideAnalysisResponse(
             page_number=page_number,
             title=page_analysis.get("title", f"Page {page_number}"),
-            original_text=page_analysis.get("original_text", ""),
+            original_text=cleaned_text,  # Use cleaned text instead of original
             explanation=page_analysis.get("explanation", ""),
             key_points=page_analysis.get("key_points", []),
             slide_type=page_analysis.get("slide_type", "content"),
             importance_level=page_analysis.get("importance_level", "medium"),
             image_data=page_data.get("image_base64", ""),
+            paragraphs=paragraphs,
+            word_count=word_count,
+            reading_time=reading_time
         )
 
     except Exception as e:

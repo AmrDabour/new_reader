@@ -65,9 +65,12 @@ class SlideAnalysisResponse(BaseModel):
     original_text: str
     explanation: str
     key_points: List[str]
-    slide_type: str  # "introduction", "content", "conclusion", etc.
-    importance_level: str  # "high", "medium", "low"
-    image_data: Optional[str] = None  # Base64 encoded image data
+    slide_type: Optional[str] = "content"
+    importance_level: Optional[str] = "medium"
+    image_data: Optional[str] = ""
+    paragraphs: Optional[List[str]] = []
+    word_count: Optional[int] = 0
+    reading_time: Optional[float] = 0.0
 
 # --- Document Summary ---
 class DocumentSummaryResponse(BaseModel):
