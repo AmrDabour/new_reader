@@ -328,6 +328,53 @@ Keep message concise and helpful. Don't be overly strict on minor imperfections.
             logger.error(f"Error analyzing page image: {e}")
             return "حدث خطأ في تحليل الصورة" if language == "arabic" else "Error occurred while analyzing the image"
 
+    def analyze_page_with_question(self, image_base64: str, question: str, language: str = "arabic") -> str:
+        """تحليل صورة الصفحة مع الإجابة على سؤال محدد"""
+        try:
+            if not self.model:
+                return "خدمة تحليل الصور غير متوفرة حالياً" if language == "arabic" else "Image analysis service is currently unavailable"
+            
+            if language == "arabic":
+                prompt = f"""انت مساعد ذكي متخصص في تحليل المحتوى التعليمي والوثائق.
+                
+سؤال المستخدم: {question}
+
+حلل الصورة واجب على السؤال بشكل مفصل ومفيد باللغة العربية.
+- ركز على تفاصيل السؤال المطروح
+- اعطي شرح واضح ومفصل
+- استخدم المعلومات الموجودة في الصورة
+- اجعل الإجابة تفصيلية ومفيدة للمستخدم"""
+            else:
+                prompt = f"""You are an intelligent assistant specialized in analyzing educational content and documents.
+
+User's question: {question}
+
+Analyze the image and answer the question in detail and helpfully in English.
+- Focus on the details of the question asked
+- Provide clear and detailed explanation  
+- Use the information available in the image
+- Make the answer detailed and useful for the user"""
+            
+            # تحويل base64 إلى image part
+            image_part = {
+                "mime_type": "image/png",
+                "data": image_base64
+            }
+            
+            response = self.model.generate_content(
+                [prompt, image_part],
+                generation_config=genai.GenerationConfig(
+                    temperature=0.3,
+                    candidate_count=1,
+                    max_output_tokens=2000
+                )
+            )
+            return response.text
+            
+        except Exception as e:
+            logger.error(f"Error analyzing page with question: {e}")
+            return "حدث خطأ في تحليل الصورة والإجابة على السؤال" if language == "arabic" else "Error occurred while analyzing the image and answering the question"
+
     # =============================================================================
     # HELPER METHODS FOR PPT & PDF READER
     # =============================================================================

@@ -239,17 +239,83 @@ class DocumentProcessor:
         text_parts = []
         
         try:
-            # Extract text from shapes
-            for shape in slide.Shapes:
-                if shape.HasTextFrame:
-                    text_frame = shape.TextFrame
-                    for para in text_frame.Paragraphs:
-                        text_parts.append(para.Text.strip())
+            # Method 1: Try to get all text from slide directly
+            try:
+                if hasattr(slide, 'GetAllTexts'):
+                    all_text = slide.GetAllTexts()
+                    if all_text and all_text.strip():
+                        return clean_and_format_text(all_text)
+            except Exception:
+                pass
+            
+            # Method 2: Extract text from shapes
+            try:
+                for shape_index in range(slide.Shapes.Count):
+                    shape = slide.Shapes[shape_index]
+                    
+                    try:
+                        # Check different ways to access text
+                        text_content = None
+                        
+                        # Try TextFrame approach
+                        if hasattr(shape, 'TextFrame') and shape.TextFrame is not None:
+                            text_frame = shape.TextFrame
+                            
+                            # Try direct Text property
+                            if hasattr(text_frame, 'Text') and text_frame.Text:
+                                text_content = text_frame.Text.strip()
+                            
+                            # Try Paragraphs approach
+                            elif hasattr(text_frame, 'Paragraphs') and text_frame.Paragraphs:
+                                para_texts = []
+                                try:
+                                    for para_index in range(text_frame.Paragraphs.Count):
+                                        para = text_frame.Paragraphs[para_index]
+                                        if hasattr(para, 'Text') and para.Text:
+                                            para_texts.append(para.Text.strip())
+                                except Exception:
+                                    # Try iterating directly
+                                    for para in text_frame.Paragraphs:
+                                        if hasattr(para, 'Text') and para.Text:
+                                            para_texts.append(para.Text.strip())
+                                
+                                if para_texts:
+                                    text_content = "\n".join(para_texts)
+                        
+                        # Try alternative text access methods
+                        if not text_content:
+                            if hasattr(shape, 'AlternativeText') and shape.AlternativeText:
+                                text_content = shape.AlternativeText.strip()
+                            elif hasattr(shape, 'Title') and shape.Title:
+                                text_content = shape.Title.strip()
+                        
+                        # Add text if found
+                        if text_content and text_content.strip():
+                            text_parts.append(text_content)
+                            
+                    except Exception as shape_error:
+                        logger.debug(f"Error processing shape {shape_index}: {str(shape_error)}")
+                        continue
+                        
+            except Exception as shapes_error:
+                logger.debug(f"Error accessing shapes: {str(shapes_error)}")
+            
+            # Method 3: Try Notes or other slide properties
+            try:
+                if hasattr(slide, 'NotesPage') and slide.NotesPage:
+                    notes_page = slide.NotesPage
+                    if hasattr(notes_page, 'NotesTextFrame') and notes_page.NotesTextFrame:
+                        notes_text = notes_page.NotesTextFrame.Text
+                        if notes_text and notes_text.strip():
+                            text_parts.append(f"Notes: {notes_text.strip()}")
+            except Exception:
+                pass
+                
         except Exception as e:
-            logger.warning(f"Error extracting text from shapes: {str(e)}")
+            logger.warning(f"Error extracting text from slide: {str(e)}")
 
         # Clean and format the extracted text
-        combined_text = "\n".join(text_parts)
+        combined_text = "\n".join(text_parts) if text_parts else ""
         return clean_and_format_text(combined_text)
 
     def _image_to_base64(self, image: Image.Image) -> str:

@@ -7,7 +7,7 @@ from app.services.gemini import GeminiService
 from app.services.document_processor import DocumentProcessor
 from app.models.schemas import (
     AnalyzeDocumentResponse, SlideAnalysisResponse, DocumentSummaryResponse,
-    NavigationRequest, NavigationResponse
+    NavigationRequest, NavigationResponse, PageQuestionRequest, PageQuestionResponse
 )
 from app.utils.text import clean_and_format_text, extract_paragraphs
 
@@ -72,11 +72,21 @@ async def upload_document(
             # Fill missing slides with fallback
             for i in range(len(analysis_result["slides_analysis"]), total_pages):
                 page = document_data["pages"][i]
+                page_text = page.get("text", "").strip()
+                
+                # Create better fallback based on available content
+                if page_text:
+                    explanation = f"تحتوي هذه الصفحة على محتوى نصي" if language == "arabic" else "This page contains text content"
+                    key_points = [page_text[:100] + "..." if len(page_text) > 100 else page_text] if page_text else []
+                else:
+                    explanation = f"صفحة تحتوي على محتوى مرئي أو صور" if language == "arabic" else "Page contains visual content or images"
+                    key_points = []
+                
                 analysis_result["slides_analysis"].append({
                     "title": page.get("title", f"Page {i+1}"),
-                    "original_text": page.get("text", ""),
-                    "explanation": "No explanation (auto-filled)",
-                    "key_points": [],
+                    "original_text": page_text,
+                    "explanation": explanation,
+                    "key_points": key_points,
                     "slide_type": "content",
                     "importance_level": "medium"
                 })
@@ -262,4 +272,45 @@ async def delete_document_session(session_id: str):
 @router.get("/ping")
 def ping():
     """فحص صحة خدمة قراءة المستندات"""
-    return {"service": "Document Reader", "status": "healthy", "active_sessions": len(document_sessions)} 
+    return {"service": "Document Reader", "status": "healthy", "active_sessions": len(document_sessions)}
+
+@router.post("/{session_id}/page/{page_number}/question", response_model=PageQuestionResponse)
+async def ask_page_question(session_id: str, page_number: int, request: PageQuestionRequest):
+    """
+    طرح سؤال حول صفحة/شريحة محددة مع تحليل الصورة
+    """
+    try:
+        if session_id not in document_sessions:
+            raise HTTPException(status_code=404, detail="جلسة المستند غير موجودة")
+
+        session = document_sessions[session_id]
+
+        if page_number < 1 or page_number > session["total_pages"]:
+            raise HTTPException(status_code=400, detail="رقم الصفحة غير صحيح")
+
+        # Get page image
+        page_index = page_number - 1
+        page_data = session["document_data"]["pages"][page_index]
+
+        if "image_base64" not in page_data:
+            raise HTTPException(status_code=404, detail="صورة الصفحة غير متوفرة")
+
+        # Get language from session
+        language = session.get("language", "arabic")
+
+        # Use Gemini to analyze page with question
+        answer = gemini_service.analyze_page_with_question(
+            image_base64=page_data["image_base64"],
+            question=request.question,
+            language=language
+        )
+
+        return PageQuestionResponse(
+            answer=answer,
+            session_id=session_id,
+            page_number=page_number,
+            question=request.question
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"خطأ في الإجابة على السؤال: {str(e)}")

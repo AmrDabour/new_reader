@@ -121,6 +121,16 @@ class DocumentAnalysis(BaseModel):
     slides_analysis: List[SlideAnalysis]
     language: str
 
+# --- Page Question Analysis ---
+class PageQuestionRequest(BaseModel):
+    question: str  # النص المستخرج من الصوت
+
+class PageQuestionResponse(BaseModel):
+    answer: str
+    session_id: str
+    page_number: int
+    question: str
+
 # =============================================================================
 # SHARED SCHEMAS
 # =============================================================================
@@ -140,4 +150,4 @@ class ErrorResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     service: str
-    active_sessions: int = 0 
+    active_sessions: int = 0
