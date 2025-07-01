@@ -1,6 +1,6 @@
 from word2number import w2n
 import re
-from typing import List
+from typing import List, Tuple
 
 # This map can be expanded
 ARABIC_NUMBER_MAP = {
@@ -65,11 +65,11 @@ def clean_and_format_text(text: str) -> str:
     # إزالة علامات التنسيق المتكررة
     text = re.sub(r'[\r\n]+', '\n', text)
     
-    # تقسيم النص إلى جمل
-    sentences = _split_into_sentences(text)
+    # تقسيم النص إلى جمل وتحديد نوعها
+    sentences_with_types = _split_into_sentences(text)
     
     # تجميع الجمل في فقرات
-    paragraphs = _group_sentences_into_paragraphs(sentences)
+    paragraphs = _group_sentences_into_paragraphs(sentences_with_types)
     
     # تنظيف نهاية النص من علامات التنسيق
     formatted_text = '\n\n'.join(paragraphs).strip()
@@ -77,18 +77,19 @@ def clean_and_format_text(text: str) -> str:
     
     return formatted_text
 
-def _split_into_sentences(text: str) -> List[str]:
+def _split_into_sentences(text: str) -> List[Tuple[str, str]]:
     """
-    تقسيم النص إلى جمل مع الحفاظ على علامات الترقيم
+    تقسيم النص إلى جمل مع تحديد نوع كل جملة
+    Returns: List of tuples (sentence, type)
+    Types: 'title', 'list_item', 'normal', 'quote'
     """
     # تنظيف المسافات الزائدة
     text = ' '.join(text.split())
     
-    # تقسيم النص إلى جمل
-    sentences = []
+    sentences_with_types = []
     current_sentence = []
     
-    # تقسيم النص إلى كلمات مع الحفاظ على علامات الترقيم
+    # تقسيم النص إلى كلمات
     words = text.replace('\n', ' ').split(' ')
     
     for word in words:
@@ -100,51 +101,81 @@ def _split_into_sentences(text: str) -> List[str]:
         
         # التحقق من نهاية الجملة
         if word and word[-1] in '.!?؟':
-            if current_sentence:  # تأكد من أن الجملة ليست فارغة
-                sentences.append(' '.join(current_sentence))
+            if current_sentence:
+                sentence = ' '.join(current_sentence)
+                sentence_type = _determine_sentence_type(sentence)
+                sentences_with_types.append((sentence, sentence_type))
                 current_sentence = []
     
-    # إضافة آخر جملة إذا كانت موجودة وليست فارغة
+    # إضافة آخر جملة إذا كانت موجودة
     if current_sentence:
-        sentences.append(' '.join(current_sentence))
+        sentence = ' '.join(current_sentence)
+        sentence_type = _determine_sentence_type(sentence)
+        sentences_with_types.append((sentence, sentence_type))
     
-    return sentences
+    return sentences_with_types
 
-def _group_sentences_into_paragraphs(sentences: List[str]) -> List[str]:
+def _determine_sentence_type(sentence: str) -> str:
     """
-    تجميع الجمل في فقرات
+    تحديد نوع الجملة بناءً على خصائصها
+    """
+    sentence = sentence.strip()
+    
+    # التحقق من العناوين
+    if (sentence.isupper() or 
+        (len(sentence.split()) <= 5 and sentence[0].isupper())):
+        return 'title'
+    
+    # التحقق من عناصر القائمة
+    if (sentence[0] in '•-*#' or 
+        re.match(r'^\d+\.', sentence)):
+        return 'list_item'
+    
+    # التحقق من الاقتباسات
+    if sentence.startswith('"') and sentence.endswith('"'):
+        return 'quote'
+    
+    return 'normal'
+
+def _group_sentences_into_paragraphs(sentences_with_types: List[Tuple[str, str]]) -> List[str]:
+    """
+    تجميع الجمل في فقرات بناءً على نوعها والسياق
     """
     paragraphs = []
     current_paragraph = []
+    current_type = None
     
-    for sentence in sentences:
-        # تنظيف الجملة
-        clean_sentence = sentence.strip()
-        if not clean_sentence:
+    for sentence, sentence_type in sentences_with_types:
+        # تجاهل الجمل الفارغة
+        if not sentence.strip():
             continue
             
-        # تخطي الأرقام المنفردة
-        if re.match(r'^\d+$', clean_sentence):
-            continue
+        # بدء فقرة جديدة إذا:
+        # 1. تغير نوع الجملة
+        # 2. الجملة الحالية عنوان
+        # 3. الجملة الحالية عنصر قائمة
+        # 4. وصلنا للحد الأقصى للجمل في الفقرة
+        if (sentence_type != current_type or
+            sentence_type in ['title', 'list_item'] or
+            len(current_paragraph) >= 3):
             
-        # بدء فقرة جديدة للعناوين والقوائم
-        if (clean_sentence.isupper() or 
-            clean_sentence[0] in '•-*#' or 
-            re.match(r'^\d+\.', clean_sentence)):
             if current_paragraph:
                 paragraphs.append(' '.join(current_paragraph))
                 current_paragraph = []
-            paragraphs.append(clean_sentence)
-            continue
+            
+            current_type = sentence_type
         
-        current_paragraph.append(clean_sentence)
+        # إضافة الجملة للفقرة الحالية
+        current_paragraph.append(sentence)
         
-        # إنشاء فقرة جديدة بعد عدد معين من الجمل
-        if len(current_paragraph) >= 5:
-            paragraphs.append(' '.join(current_paragraph))
-            current_paragraph = []
+        # إضافة فقرة جديدة بعد الاقتباسات والعناوين مباشرة
+        if sentence_type in ['quote', 'title']:
+            if current_paragraph:
+                paragraphs.append(' '.join(current_paragraph))
+                current_paragraph = []
+                current_type = None
     
-    # إضافة آخر فقرة إذا كانت موجودة
+    # إضافة آخر فقرة
     if current_paragraph:
         paragraphs.append(' '.join(current_paragraph))
     
