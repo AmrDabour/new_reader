@@ -13,6 +13,7 @@ class ImageQualityResponse(BaseModel):
     image_width: int
     image_height: int
     session_id: str  # Added for session management
+    form_explanation: str = ""  # Form explanation if quality is good
 
 # --- Main Analysis Endpoint ---
 class UIField(BaseModel):

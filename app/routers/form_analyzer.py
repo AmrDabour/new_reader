@@ -40,11 +40,24 @@ async def check_image_quality(file: UploadFile = File(...)):
         # Check image quality and detect language automatically
         language_direction, quality_good, quality_message = gemini_service.detect_language_and_quality(image)
         
+        # Simple form explanation based on basic image analysis (no YOLO or heavy processing)
+        form_explanation = ""
+        if quality_good:
+            try:
+                # For now, just test if Gemini works by calling the working function
+                explanation, _ = gemini_service.get_form_details(image, language_direction)
+                form_explanation = explanation or ""
+            except Exception as e:
+                # If form explanation fails, continue without it
+                pass
+        
         # Store detected language in session
         try:
             session_service.update_session(session_id, 'language_direction', language_direction)
             session_service.update_session(session_id, 'image_width', image.width)
             session_service.update_session(session_id, 'image_height', image.height)
+            if form_explanation:
+                session_service.update_session(session_id, 'form_explanation', form_explanation)
         except Exception as session_error:
             # Continue without session updates if there's an error
             pass
@@ -55,7 +68,8 @@ async def check_image_quality(file: UploadFile = File(...)):
             quality_message=quality_message,
             image_width=image.width,
             image_height=image.height,
-            session_id=session_id
+            session_id=session_id,
+            form_explanation=form_explanation
         )
 
     except Exception as e:
@@ -93,8 +107,9 @@ async def analyze_form(file: UploadFile = File(...), session_id: str = Form(None
         # 4. Create annotated image for Gemini (with numbers)
         gpt_image = image_service.create_annotated_image_for_gpt(corrected_image, fields_data, with_numbers=True)
         
-        # 5. Get form analysis from Gemini with determined language
-        explanation, gpt_fields_raw = gemini_service.get_form_details(gpt_image, final_language)
+        # 5. Get form fields from Gemini with determined language
+        gpt_fields_raw = gemini_service.get_form_fields_only(gpt_image, final_language)
+            
         if not gpt_fields_raw:
             raise HTTPException(status_code=500, detail="AI model failed to extract form details.")
 
@@ -111,7 +126,7 @@ async def analyze_form(file: UploadFile = File(...), session_id: str = Form(None
 
         return FormAnalysisResponse(
             fields=final_fields,
-            form_explanation=explanation,
+            form_explanation="",  # No explanation in analyze-form, only in check-image
             language_direction=final_language,
             image_width=corrected_image.width,
             image_height=corrected_image.height,

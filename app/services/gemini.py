@@ -218,6 +218,79 @@ Keep message concise and helpful. Don't be overly strict on minor imperfections.
         except (json.JSONDecodeError, Exception) as e:
             return None, None
 
+    def get_form_fields_only(self, image: Image.Image, language: str):
+        """
+        Get only the form fields without explanation (for when we already have explanation from check-image)
+        """
+        try:
+            buffered = io.BytesIO()
+            image.save(buffered, format="PNG")
+            img_str = base64.b64encode(buffered.getvalue()).decode('utf-8')
+            lang_name = "Arabic" if language == 'rtl' else "English"
+
+            # --- Language-Specific Prompts (fields only) ---
+            if language == 'rtl':
+                prompt = f"""
+أنت مساعد ذكي متخصص في تحليل النماذج. هدفك هو تحديد الحقول القابلة للتعبئة فقط.
+
+**تحديد الحقول القابلة للتعبئة:** لكل مربع مرقم (1، 2، 3، إلخ) يمثل مكانًا للكتابة للمستخدم:
+- ابحث عن التسمية النصية أو الوصف المقابل بالقرب منه.
+- **حدد ما إذا كان المربع صالحًا بناءً على السياق:** قم بتحليل التسمية والنص المحيط لفهم الغرض من الحقل.
+    - يعتبر الحقل **غير صالح** إذا كان النص يشير إلى أنه "للاستخدام الرسمي فقط"، أو مثال، أو مجرد تعليمة، أو إذا كان يحتوي بالفعل على قيمة محددة.
+    - يعتبر الحقل **صالحًا** إذا كان غرضه هو الحصول على معلومات من المستخدم بوضوح (مثل: "الاسم"، "العنوان"، "التوقيع").
+    - **مربعات الاختيار:** تكون مربعات الاختيار **صالحة** دائمًا تقريبًا. اجعلها غير صالحة فقط إذا لم تكن عنصرًا تفاعليًا بشكل واضح.
+- احتفظ بنص التسمية كما هو مكتوب في النموذج تمامًا، دون ترجمة.
+
+**تنسيق الإخراج:** يجب أن يكون الإخراج قائمة JSON فقط، بدون أي نص قبله أو بعده.
+
+```json
+[
+  {{ "id": 1, "label": "نص المربع 1", "valid": true }},
+  {{ "id": 2, "label": "نص المربع 2", "valid": false }}
+]
+```"""
+            else:
+                prompt = f"""You are an intelligent form assistant. Your goal is to identify fillable fields only.
+
+**Identify Fillable Fields:** For each numbered box (1, 2, 3, etc.) that represents a place for the user to write:
+- Find the corresponding text label or description near it.
+- **Determine if the box is valid based on CONTEXT:** Analyze the label and surrounding text to understand the field's purpose.
+    - A field is **invalid** if the text implies it is for official use, an example, an instruction, or if it already contains a definitive value.
+    - A field is **valid** if its purpose is clearly to capture information from the user (e.g., "Name", "Address", "Signature").
+    - **Checkboxes:** A checkbox is almost always **valid**. Only mark it as invalid if it is clearly not an interactive element.
+- Keep the label text exactly as it is written in the form, without translation.
+
+**Format your response strictly as a JSON array with no other text before or after it.**
+
+```json
+[
+  {{ "id": 1, "label": "Text for box 1", "valid": true }},
+  {{ "id": 2, "label": "Text for box 2", "valid": false }}
+]
+```"""
+
+            image_part = {"mime_type": "image/png", "data": img_str}
+            response = self.model.generate_content(
+                [prompt, image_part],
+                generation_config=genai.GenerationConfig(
+                    temperature=0,
+                    candidate_count=1,
+                    top_k=1,
+                    top_p=0.1,
+                    max_output_tokens=5000
+                ),
+                stream=False
+            )
+            if not response.candidates or response.candidates[0].finish_reason.name != "STOP":
+                return None
+            response_text = response.text.strip().replace("```json", "").replace("```", "").strip()
+            fields = json.loads(response_text)
+            if isinstance(fields, list):
+                return fields
+            return None
+        except (json.JSONDecodeError, Exception) as e:
+            return None
+
     # =============================================================================
     # MONEY READER METHODS
     # =============================================================================
@@ -250,6 +323,64 @@ Keep message concise and helpful. Don't be overly strict on minor imperfections.
 
         except Exception as e:
             return f"خطأ: {str(e)}"
+
+    def get_quick_form_explanation(self, image: Image.Image, language: str) -> str:
+        """
+        Get a quick form explanation without field detection (lightweight operation)
+        Used in check-image endpoint for faster response
+        """
+        try:
+            buffered = io.BytesIO()
+            image.save(buffered, format="PNG")
+            img_str = base64.b64encode(buffered.getvalue()).decode('utf-8')
+
+            if language == 'rtl':
+                prompt = """
+أنت مساعد ذكي متخصص في تحليل النماذج. اقرأ النموذج في الصورة وقدم ملخصاً مفيداً وموجزاً باللغة العربية.
+
+يجب أن يشمل الملخص:
+- الغرض الرئيسي للنموذج (مثل: طلب منحة، تقديم طلب، إقرار، etc.)
+- أي جهات أو مؤسسات مذكورة (مثل: جامعات، شركات، وزارات)
+- نوع المعلومات المطلوبة (بيانات شخصية، أكاديمية، مهنية)
+- أي شروط أو ملاحظات مهمة
+
+أجب بشكل مباشر ومفيد في 2-4 جمل فقط. لا تستخدم تنسيقات markdown.
+"""
+            else:
+                prompt = """
+You are an intelligent form assistant. Read the form in the image and provide a helpful, concise summary in English.
+
+The summary should include:
+- The main purpose of the form (e.g., scholarship application, registration, declaration, etc.)
+- Any important organizations or entities mentioned
+- The type of information required (personal, academic, professional data)
+- Any important conditions or notes
+
+Respond directly and helpfully in 2-4 sentences only. Do not use markdown formatting.
+"""
+
+            image_part = {"mime_type": "image/png", "data": img_str}
+            response = self.model.generate_content(
+                [prompt, image_part],
+                generation_config=genai.GenerationConfig(
+                    temperature=0.2,
+                    candidate_count=1,
+                    max_output_tokens=800
+                ),
+                stream=False
+            )
+            
+            if not response or not response.text:
+                logger.warning("Empty response from Gemini for form explanation")
+                return ""
+                
+            explanation = self.remove_markdown_formatting(response.text.strip())
+            logger.info(f"Form explanation generated: {explanation[:100]}...")
+            return explanation
+            
+        except Exception as e:
+            logger.error(f"Error generating quick form explanation: {e}")
+            return ""
 
     # =============================================================================
     # PPT & PDF READER METHODS
