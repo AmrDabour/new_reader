@@ -35,6 +35,8 @@ class AnnotateImageRequest(BaseModel):
     original_image_b64: str
     texts_dict: Dict[str, Any]
     ui_fields: List[UIField]
+    signature_image_b64: Optional[str] = None # حقل جديد لاستقبال صورة التوقيع
+    signature_field_id: Optional[str] = None # معرف حقل التوقيع لتحديد مكان وضع الصورة
 
 # =============================================================================
 # MONEY READER SCHEMAS

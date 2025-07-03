@@ -1,3 +1,4 @@
+from typing import Optional
 from PIL import Image, ImageDraw, ImageFont
 from app.utils.arabic import is_arabic_text
 from bidi.algorithm import get_display
@@ -60,21 +61,20 @@ class ImageService:
                 draw.text((text_x, text_y), text, fill="red", font=font)
         return Image.alpha_composite(base_img, overlay)
 
-    def create_final_annotated_image(self, image: Image.Image, texts_dict: dict, ui_fields: list):
+    def create_final_annotated_image(self, image: Image.Image, texts_dict: dict, ui_fields: list, signature_image_b64: Optional[str] = None, signature_field_id: Optional[str] = None):
         """
-        Draws the user's final text and checkmarks onto the image.
-        This function is a combination of logic from the original app.py
+        Draws the user's final text, checkmarks, and signature onto the image.
         """
-        if not texts_dict or not ui_fields:
+        if not texts_dict and not signature_image_b64:
             return image
             
         annotated = image.copy()
         draw = ImageDraw.Draw(annotated)
         
-        # Calculate default font size based on average field height
+        # --- Font setup ---
         text_fields = [f for f in ui_fields if f.type == 'textbox' and f.box]
         if not text_fields:
-            avg_height = 20 # default
+            avg_height = 20
         else:
             avg_height = sum(f.box[3] for f in text_fields) / len(text_fields)
         default_font_size = int(avg_height * 0.5)
@@ -86,6 +86,88 @@ class ImageService:
             default_font = ImageFont.load_default()
             arabic_font = default_font
 
+        # --- Signature Handling ---
+        if signature_image_b64 and signature_field_id:
+            try:
+                sig_bytes = base64.b64decode(signature_image_b64)
+                sig_image = Image.open(io.BytesIO(sig_bytes)).convert("RGBA")
+
+                # Find the specific signature field by its ID
+                signature_field_found = False
+                for field in ui_fields:
+                    if field.box_id == signature_field_id and field.box:
+                        signature_field_found = True
+                        x, y, w, h = map(int, field.box)  # Convert to integers
+                        
+                        # Resize signature to fit the box with better scaling
+                        # Calculate aspect ratios
+                        box_ratio = w / h
+                        sig_ratio = sig_image.width / sig_image.height
+                        
+                        # Scale to fit within the box while maintaining aspect ratio
+                        if sig_ratio > box_ratio:
+                            # Signature is wider, scale by width
+                            new_width = int(w * 0.8)  # Use 80% of box width for padding
+                            new_height = int(new_width / sig_ratio)
+                        else:
+                            # Signature is taller, scale by height
+                            new_height = int(h * 0.8)  # Use 80% of box height for padding
+                            new_width = int(new_height * sig_ratio)
+                        
+                        # Resize the signature
+                        sig_image = sig_image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+                        
+                        # Calculate position to center the signature in the box
+                        paste_x = int(x + (w - new_width) // 2)
+                        paste_y = int(y + (h - new_height) // 2)
+                        
+                        # Paste the signature
+                        annotated.paste(sig_image, (paste_x, paste_y), sig_image)
+                        
+                        # Remove this field from text processing
+                        if field.box_id in texts_dict:
+                            del texts_dict[field.box_id]
+                        break
+                    
+            except Exception as e:
+                print(f"Error processing signature: {e}")
+                import traceback
+                traceback.print_exc()
+        elif signature_image_b64:
+            # Fallback: if signature_field_id is not provided, use the old method
+            try:
+                sig_bytes = base64.b64decode(signature_image_b64)
+                sig_image = Image.open(io.BytesIO(sig_bytes)).convert("RGBA")
+
+                for field in ui_fields:
+                    if any(keyword in field.label.lower() for keyword in ["signature", "توقيع", "امضاء"]) and field.box:
+                        x, y, w, h = map(int, field.box)  # Convert to integers
+                        
+                        # Apply the same improved scaling logic
+                        box_ratio = w / h
+                        sig_ratio = sig_image.width / sig_image.height
+                        
+                        if sig_ratio > box_ratio:
+                            new_width = int(w * 0.8)
+                            new_height = int(new_width / sig_ratio)
+                        else:
+                            new_height = int(h * 0.8)
+                            new_width = int(new_height * sig_ratio)
+                        
+                        sig_image = sig_image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+                        
+                        paste_x = int(x + (w - new_width) // 2)
+                        paste_y = int(y + (h - new_height) // 2)
+                        
+                        annotated.paste(sig_image, (paste_x, paste_y), sig_image)
+                        
+                        if field.box_id in texts_dict:
+                            del texts_dict[field.box_id]
+                        break
+            except Exception as e:
+                print(f"Error processing signature: {e}")
+
+        # --- Text and Checkbox Drawing ---
         for field in ui_fields:
             box_id = field.box_id
             value = texts_dict.get(box_id)
@@ -116,7 +198,6 @@ class ImageService:
                     is_arabic = is_arabic_text(value)
                     display_text = get_display(arabic_reshaper.reshape(value)) if is_arabic else value
                     
-                    # Very simplified font sizing for now
                     font = arabic_font if is_arabic else default_font
                     
                     draw_y = y + h / 2
@@ -144,4 +225,4 @@ class ImageService:
                     'type': field_type,
                     'box': field_data['box']
                 })
-        return final_fields 
+        return final_fields

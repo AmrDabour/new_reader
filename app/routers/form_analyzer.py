@@ -221,7 +221,9 @@ async def annotate_image_endpoint(request: AnnotateImageRequest):
         final_image = image_service.create_final_annotated_image(
             image=original_image,
             texts_dict=request.texts_dict,
-            ui_fields=request.ui_fields
+            ui_fields=request.ui_fields,
+            signature_image_b64=request.signature_image_b64,
+            signature_field_id=request.signature_field_id
         )
         
         buffered = io.BytesIO()
@@ -235,4 +237,4 @@ async def annotate_image_endpoint(request: AnnotateImageRequest):
 
 @router.get("/ping")
 def ping():
-    return {"msg": "pong"} 
+    return {"msg": "pong"}

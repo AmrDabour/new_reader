@@ -19,6 +19,8 @@ arabic-reshaper
 python-bidi
 langdetect
 word2number
+thefuzz
+python-Levenshtein
 
 # Document processing libraries
 PyMuPDF
@@ -30,4 +32,4 @@ pydantic
 pydantic-settings
 
 # Utilities
-requests 
+requests
