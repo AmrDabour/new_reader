@@ -154,3 +154,52 @@ class HealthResponse(BaseModel):
     status: str
     service: str
     active_sessions: int = 0
+
+# =============================================================================
+# PDF FORM ANALYSIS SCHEMAS
+# =============================================================================
+
+class PDFInfo(BaseModel):
+    total_pages: int
+    title: str = ""
+    author: str = ""
+    subject: str = ""
+
+class PDFPageAnalysis(BaseModel):
+    page_number: int
+    fields: List[UIField]
+    language_direction: str
+    image_width: int
+    image_height: int
+    has_fields: bool = False
+    field_count: int = 0
+
+class PDFFormAnalysisResponse(BaseModel):
+    pdf_info: PDFInfo
+    pages: List[PDFPageAnalysis]
+    session_id: str
+    total_fields: int = 0
+    pages_with_fields: int = 0
+    recommended_language: str = "rtl"
+
+class PDFQualityResponse(BaseModel):
+    pdf_info: PDFInfo
+    quality_good: bool
+    quality_message: str
+    session_id: str
+    form_explanation: str = ""
+    recommended_language: str = "rtl"
+
+# --- PDF Navigation for multi-page forms ---
+class PDFPageRequest(BaseModel):
+    session_id: str
+    page_number: int
+
+class PDFPageResponse(BaseModel):
+    page_number: int
+    total_pages: int
+    fields: List[UIField]
+    image_base64: str
+    language_direction: str
+    has_fields: bool
+    session_id: str
