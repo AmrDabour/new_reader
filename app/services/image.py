@@ -1,8 +1,7 @@
 from typing import Optional
 from PIL import Image, ImageDraw, ImageFont
-from app.utils.arabic import is_arabic_text
-from bidi.algorithm import get_display
-import arabic_reshaper
+from app.utils.arabic import is_arabic_text, reshape_arabic_text
+from app.utils.amiri_font import amiri_manager
 import cv2
 import numpy as np
 import io, base64
@@ -77,14 +76,39 @@ class ImageService:
             avg_height = 20
         else:
             avg_height = sum(f.box[3] for f in text_fields) / len(text_fields)
-        default_font_size = int(avg_height * 0.5)
+        default_font_size = max(12, int(avg_height * 0.6))  # Ensure minimum font size
 
-        try:
-            default_font = ImageFont.truetype("arial.ttf", default_font_size)
-            arabic_font = ImageFont.truetype("arialbd.ttf", default_font_size)
-        except Exception:
+        # Try multiple font options for better Arabic support
+        arabic_font = None
+        default_font = None
+        
+        # استخدام مدير خط Amiri للحصول على أفضل خط عربي
+        arabic_font = amiri_manager.get_arabic_font(default_font_size)
+        
+        # خطوط افتراضية للنصوص الإنجليزية
+        default_font_options = [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+            "arial.ttf"
+        ]
+        
+        # تحميل خط افتراضي للنصوص الإنجليزية
+        default_font = None
+        for font_path in default_font_options:
+            try:
+                default_font = ImageFont.truetype(font_path, default_font_size)
+                break
+            except (IOError, OSError):
+                continue
+        
+        # الاحتياط في حالة عدم وجود خطوط
+        if default_font is None:
             default_font = ImageFont.load_default()
-            arabic_font = default_font
+            
+        # طباعة معلومات الخطوط المحملة
+        font_info = amiri_manager.get_font_info()
+        print(f"🎯 نوع الخط المستخدم للعربية: {font_info['font_name']}")
+        print(f"📍 مسار الخط: {font_info['best_font_path']}")
 
         # --- Signature Handling ---
         if signature_image_b64 and signature_field_id:
@@ -196,14 +220,55 @@ class ImageService:
                 elif field_type == 'textbox' and isinstance(value, str) and value.strip():
                     padding = 4
                     is_arabic = is_arabic_text(value)
-                    display_text = get_display(arabic_reshaper.reshape(value)) if is_arabic else value
                     
-                    font = arabic_font if is_arabic else default_font
-                    
-                    draw_y = y + h / 2
+                    # Enhanced Arabic text processing using Amiri font manager
                     if is_arabic:
+                        # استخدام الدالة الجديدة لمعالجة النص العربي بشكل صحيح
+                        # نحتاج إلى إعادة تشكيل الحروف فقط بدون عكس الاتجاه
+                        display_text = reshape_arabic_text(value, for_display=False)
+                        font = arabic_font
+                    else:
+                        display_text = value
+                        font = default_font
+                    
+                    # Calculate text size more accurately
+                    try:
+                        text_bbox = draw.textbbox((0, 0), display_text, font=font)
+                        text_w, text_h = text_bbox[2] - text_bbox[0], text_bbox[3] - text_bbox[1]
+                    except AttributeError:
+                        # Fallback for older PIL versions
+                        text_w, text_h = draw.textsize(display_text, font=font)
+                    
+                    # Adjust font size if text is too large for the box
+                    if text_w > (w - 2*padding):
+                        scale_factor = (w - 2*padding) / text_w
+                        new_font_size = max(8, int(default_font_size * scale_factor))
+                        
+                        if is_arabic:
+                            # استخدام مدير Amiri للحصول على خط بحجم جديد
+                            font = amiri_manager.get_arabic_font(new_font_size)
+                            print(f"🎯 تعديل حجم خط Amiri إلى: {new_font_size}")
+                        else:
+                            # تحديث الخط الافتراضي بالحجم الجديد
+                            for font_path in default_font_options:
+                                try:
+                                    font = ImageFont.truetype(font_path, new_font_size)
+                                    break
+                                except (IOError, OSError):
+                                    continue
+                        
+                        if font is None:
+                            font = ImageFont.load_default()
+                    
+                    # Position text in the middle of the box
+                    draw_y = y + h / 2
+                    
+                    if is_arabic:
+                        # Right-align Arabic text and use correct text direction
+                        # النص العربي تم إعادة تشكيله فقط وبالفعل في الاتجاه الصحيح من اليمين لليسار
                         draw.text((x + w - padding, draw_y), display_text, fill="black", font=font, anchor="rm")
                     else:
+                        # Left-align English text
                         draw.text((x + padding, draw_y), display_text, fill="black", font=font, anchor="lm")
         return annotated
 

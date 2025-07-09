@@ -96,6 +96,15 @@ Keep message concise and helpful. Don't be overly strict on minor imperfections.
 """
 
             image_part = {"mime_type": "image/png", "data": img_str}
+            
+            # Add safety settings to reduce blocking
+            safety_settings = [
+                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+            ]
+            
             response = self.model.generate_content(
                 [prompt, image_part],
                 generation_config=genai.GenerationConfig(
@@ -105,21 +114,57 @@ Keep message concise and helpful. Don't be overly strict on minor imperfections.
                     top_p=0.1,
                     max_output_tokens=1000
                 ),
+                safety_settings=safety_settings,
                 stream=False
             )
             
-            if not response.candidates or response.candidates[0].finish_reason.name != "STOP":
+            # Check response and handle errors
+            try:
+                if hasattr(response, 'candidates') and response.candidates:
+                    candidate = response.candidates[0]
+                    finish_reason = candidate.finish_reason.name if hasattr(candidate.finish_reason, 'name') else str(candidate.finish_reason)
+                    print(f"[Gemini][detect_language_and_quality] finish_reason: {finish_reason}")
+                    
+                    # Check if response was blocked
+                    if finish_reason in ["SAFETY", "RECITATION", "OTHER"] or finish_reason in ["1", "2", "3"]:
+                        print(f"[Gemini][detect_language_and_quality] Response blocked due to: {finish_reason}")
+                        return 'ltr', True, "Unable to analyze image - defaulting to English"
+                        
+                    # Check if not STOP (4)
+                    if finish_reason not in ["STOP", "4"]:
+                        print(f"[Gemini][detect_language_and_quality] Unexpected finish_reason: {finish_reason}")
+                        return 'ltr', True, "Analysis incomplete - defaulting to English"
+                else:
+                    print("[Gemini][detect_language_and_quality] No candidates in response.")
+                    return 'ltr', True, "No response received - defaulting to English"
+                    
+                # Try to get text safely
+                response_text = getattr(response, 'text', None)
+                if not response_text:
+                    print("[Gemini][detect_language_and_quality] No text in response.")
+                    return 'ltr', True, "Empty response - defaulting to English"
+                    
+            except Exception as e:
+                print(f"[Gemini][detect_language_and_quality] Exception accessing response: {e}")
+                return 'ltr', True, "Error analyzing image"
+            
+            if not response.candidates or response.candidates[0].finish_reason.name not in ["STOP"] and str(response.candidates[0].finish_reason) not in ["4"]:
                 return 'ltr', True, "Unable to analyze image quality"
                 
             response_text = response.text.strip().replace("```json", "").replace("```", "").strip()
             
-            parsed_json = json.loads(response_text)
-            
-            language_direction = parsed_json.get("language_direction", 'ltr')
-            quality_good = parsed_json.get("quality_good", True)
-            quality_message = parsed_json.get("quality_message", "Image quality check completed")
-            
-            return language_direction, quality_good, quality_message
+            try:
+                parsed_json = json.loads(response_text)
+                
+                language_direction = parsed_json.get("language_direction", 'ltr')
+                quality_good = parsed_json.get("quality_good", True)
+                quality_message = parsed_json.get("quality_message", "Image quality check completed")
+                
+                return language_direction, quality_good, quality_message
+            except json.JSONDecodeError as e:
+                print(f"[Gemini][detect_language_and_quality] JSON decode error: {e}")
+                print(f"[Gemini][detect_language_and_quality] Response text: {response_text}")
+                return 'ltr', True, "Error analyzing image"
             
         except (json.JSONDecodeError, Exception) as e:
             return 'ltr', True, "Error analyzing image"
@@ -195,6 +240,17 @@ Keep message concise and helpful. Don't be overly strict on minor imperfections.
     ```"""
 
             image_part = {"mime_type": "image/png", "data": img_str}
+            print("[Gemini][get_form_details] Sending prompt:")
+            print(prompt)
+            
+            # Add safety settings to reduce blocking
+            safety_settings = [
+                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+            ]
+            
             response = self.model.generate_content(
                 [prompt, image_part],
                 generation_config=genai.GenerationConfig(
@@ -204,19 +260,86 @@ Keep message concise and helpful. Don't be overly strict on minor imperfections.
                     top_p=0.1,
                     max_output_tokens=9000
                 ),
+                safety_settings=safety_settings,
                 stream=False
             )
-            if not response.candidates or response.candidates[0].finish_reason.name != "STOP":
-                return None, None
-            response_text = response.text.strip().replace("```json", "").replace("```", "").strip()
-            parsed_json = json.loads(response_text)
-            explanation = parsed_json.get("explanation")
-            fields = parsed_json.get("fields")
-            if isinstance(fields, list) and explanation:
-                return explanation, fields
-            return None, None
-        except (json.JSONDecodeError, Exception) as e:
-            return None, None
+            # --- Robust handling for missing/invalid response ---
+            print("[Gemini][get_form_details] Raw response:")
+            try:
+                # Print finish_reason and candidate info for debugging
+                if hasattr(response, 'candidates') and response.candidates:
+                    candidate = response.candidates[0]
+                    finish_reason = candidate.finish_reason.name if hasattr(candidate.finish_reason, 'name') else str(candidate.finish_reason)
+                    print(f"[Gemini][get_form_details] finish_reason: {finish_reason}")
+                    
+                    # Check if response was blocked for safety reasons
+                    # finish_reason 1 = SAFETY, 2 = RECITATION, 3 = OTHER
+                    if finish_reason in ["SAFETY", "RECITATION", "OTHER"] or finish_reason in ["1", "2", "3"]:
+                        print(f"[Gemini][get_form_details] Response blocked due to: {finish_reason}")
+                        print("[Gemini][get_form_details] This might be due to Arabic text being flagged incorrectly or content policies.")
+                        
+                        # Print safety ratings for debugging
+                        if hasattr(candidate, 'safety_ratings') and candidate.safety_ratings:
+                            print("[Gemini][get_form_details] Safety ratings:")
+                            for rating in candidate.safety_ratings:
+                                print(f"  {rating}")
+                        
+                        # Return a more user-friendly error
+                        explanation = "عذراً، لم نتمكن من تحليل النموذج بسبب قيود الأمان. يرجى المحاولة مرة أخرى أو التأكد من وضوح الصورة." if language == 'rtl' else "Sorry, we couldn't analyze the form due to safety restrictions. Please try again or ensure the image is clear."
+                        return explanation, []
+                        
+                    # Check if not STOP (4)
+                    if finish_reason not in ["STOP", "4"]:
+                        print(f"[Gemini][get_form_details] Unexpected finish_reason: {finish_reason}")
+                        explanation = "حدث خطأ في التحليل. يرجى المحاولة مرة أخرى." if language == 'rtl' else "An error occurred during analysis. Please try again."
+                        return explanation, []
+                else:
+                    print("[Gemini][get_form_details] No candidates in response.")
+                    explanation = "لم نتمكن من تحليل النموذج. يرجى المحاولة مرة أخرى." if language == 'rtl' else "Unable to analyze the form. Please try again."
+                    return explanation, []
+                    
+                # Try to get text safely
+                response_text = getattr(response, 'text', None)
+                if not response_text:
+                    print("[Gemini][get_form_details] No text in response.")
+                    explanation = "لم نتمكن من الحصول على نتيجة التحليل. يرجى المحاولة مرة أخرى." if language == 'rtl' else "Could not get analysis result. Please try again."
+                    return explanation, []
+                    
+                print(f"[Gemini][get_form_details] Response text: {response_text}")
+                
+                # Clean and parse the response
+                response_text = response_text.strip().replace("```json", "").replace("```", "").strip()
+                print("[Gemini][get_form_details] Cleaned response text:")
+                print(response_text)
+                
+                try:
+                    parsed_json = json.loads(response_text)
+                except Exception as e:
+                    print(f"[Gemini][get_form_details] JSON decode error: {e}")
+                    print(f"[Gemini][get_form_details] Response text that failed: {response_text}")
+                    explanation = "خطأ في تحليل البيانات المستلمة. يرجى المحاولة مرة أخرى." if language == 'rtl' else "Error parsing received data. Please try again."
+                    return explanation, []
+                    
+                explanation = parsed_json.get("explanation")
+                fields = parsed_json.get("fields")
+                
+                if isinstance(fields, list) and explanation:
+                    return explanation, fields
+                    
+                print("[Gemini][get_form_details] Fields or explanation missing or invalid.")
+                explanation = "البيانات المستلمة غير مكتملة. يرجى المحاولة مرة أخرى." if language == 'rtl' else "Received data is incomplete. Please try again."
+                return explanation, []
+                
+            except Exception as e:
+                print(f"[Gemini][get_form_details] Exception while accessing response.text: {e}")
+                explanation = "حدث خطأ تقني. يرجى المحاولة مرة أخرى." if language == 'rtl' else "A technical error occurred. Please try again."
+                return explanation, []
+        except Exception as e:
+            print(f"[Gemini][get_form_details] Exception: {e}")
+            import traceback
+            traceback.print_exc()
+            explanation = "حدث خطأ تقني غير متوقع. يرجى المحاولة مرة أخرى." if language == 'rtl' else "An unexpected technical error occurred. Please try again."
+            return explanation, []
 
     def get_form_fields_only(self, image: Image.Image, language: str):
         """
@@ -270,6 +393,17 @@ Keep message concise and helpful. Don't be overly strict on minor imperfections.
 ```"""
 
             image_part = {"mime_type": "image/png", "data": img_str}
+            print("[Gemini][get_form_fields_only] Sending prompt:")
+            print(prompt)
+            
+            # Add safety settings to reduce blocking
+            safety_settings = [
+                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+            ]
+            
             response = self.model.generate_content(
                 [prompt, image_part],
                 generation_config=genai.GenerationConfig(
@@ -277,19 +411,73 @@ Keep message concise and helpful. Don't be overly strict on minor imperfections.
                     candidate_count=1,
                     top_k=1,
                     top_p=0.1,
-                    max_output_tokens=5000
+                    max_output_tokens=9000
                 ),
+                safety_settings=safety_settings,
                 stream=False
             )
-            if not response.candidates or response.candidates[0].finish_reason.name != "STOP":
-                return None
-            response_text = response.text.strip().replace("```json", "").replace("```", "").strip()
-            fields = json.loads(response_text)
-            if isinstance(fields, list):
-                return fields
-            return None
-        except (json.JSONDecodeError, Exception) as e:
-            return None
+            print("[Gemini][get_form_fields_only] Raw response:")
+            try:
+                if hasattr(response, 'candidates') and response.candidates:
+                    candidate = response.candidates[0]
+                    finish_reason = candidate.finish_reason.name if hasattr(candidate.finish_reason, 'name') else str(candidate.finish_reason)
+                    print(f"[Gemini][get_form_fields_only] finish_reason: {finish_reason}")
+                    
+                    # Check if response was blocked for safety reasons
+                    # finish_reason 1 = SAFETY, 2 = RECITATION, 3 = OTHER
+                    if finish_reason in ["SAFETY", "RECITATION", "OTHER"] or finish_reason in ["1", "2", "3"]:
+                        print(f"[Gemini][get_form_fields_only] Response blocked due to: {finish_reason}")
+                        print("[Gemini][get_form_fields_only] This might be due to Arabic text being flagged incorrectly or content policies.")
+                        
+                        # Print safety ratings for debugging
+                        if hasattr(candidate, 'safety_ratings') and candidate.safety_ratings:
+                            print("[Gemini][get_form_fields_only] Safety ratings:")
+                            for rating in candidate.safety_ratings:
+                                print(f"  {rating}")
+                        return []
+                        
+                    # Check if not STOP (4)
+                    if finish_reason not in ["STOP", "4"]:
+                        print(f"[Gemini][get_form_fields_only] Unexpected finish_reason: {finish_reason}")
+                        return []
+                else:
+                    print("[Gemini][get_form_fields_only] No candidates in response.")
+                    return []
+                    
+                # Try to get text safely
+                response_text = getattr(response, 'text', None)
+                if not response_text:
+                    print("[Gemini][get_form_fields_only] No text in response.")
+                    return []
+                    
+                print(f"[Gemini][get_form_fields_only] Response text: {response_text}")
+                
+                # Clean and parse the response
+                response_text = response_text.strip().replace("```json", "").replace("```", "").strip()
+                print("[Gemini][get_form_fields_only] Cleaned response text:")
+                print(response_text)
+                
+                try:
+                    fields = json.loads(response_text)
+                except Exception as e:
+                    print(f"[Gemini][get_form_fields_only] JSON decode error: {e}")
+                    print(f"[Gemini][get_form_fields_only] Response text that failed: {response_text}")
+                    return []
+                    
+                if isinstance(fields, list):
+                    return fields
+                    
+                print("[Gemini][get_form_fields_only] Fields not a list.")
+                return []
+                
+            except Exception as e:
+                print(f"[Gemini][get_form_fields_only] Exception while accessing response.text: {e}")
+                return []
+        except Exception as e:
+            print(f"[Gemini][get_form_fields_only] Exception: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
 
     # =============================================================================
     # MONEY READER METHODS
@@ -315,13 +503,52 @@ Keep message concise and helpful. Don't be overly strict on minor imperfections.
             اجعل الرد خالي من اي ترحيب
             """
 
-            response = self.model.generate_content([prompt, image])
+            # Add safety settings to reduce blocking
+            safety_settings = [
+                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+            ]
+
+            response = self.model.generate_content(
+                [prompt, image],
+                safety_settings=safety_settings
+            )
             
-            # إزالة تنسيقات Markdown من الرد
-            clean_response = self.remove_markdown_formatting(response.text)
-            return clean_response
+            # Check if response was generated successfully
+            try:
+                if hasattr(response, 'candidates') and response.candidates:
+                    candidate = response.candidates[0]
+                    finish_reason = candidate.finish_reason.name if hasattr(candidate.finish_reason, 'name') else str(candidate.finish_reason)
+                    
+                    # Check if response was blocked
+                    if finish_reason in ["SAFETY", "RECITATION", "OTHER"] or finish_reason in ["1", "2", "3"]:
+                        print(f"[Gemini][analyze_currency_image] Response blocked due to: {finish_reason}")
+                        return "عذراً، لم نتمكن من تحليل العملة بسبب قيود النظام. حاول مرة أخرى."
+                        
+                    # Check if not STOP (4)
+                    if finish_reason not in ["STOP", "4"]:
+                        print(f"[Gemini][analyze_currency_image] Unexpected finish_reason: {finish_reason}")
+                        return "فشل في تحليل العملة. حاول مرة أخرى."
+                else:
+                    return "لم نتمكن من تحليل العملة. حاول مرة أخرى."
+                    
+                # Try to get text safely
+                response_text = getattr(response, 'text', None)
+                if not response_text:
+                    return "لم نتمكن من الحصول على نتيجة التحليل. حاول مرة أخرى."
+                    
+                # إزالة تنسيقات Markdown من الرد
+                clean_response = self.remove_markdown_formatting(response_text)
+                return clean_response
+                
+            except Exception as e:
+                print(f"[Gemini][analyze_currency_image] Exception accessing response: {e}")
+                return "خطأ في الحصول على النتيجة. حاول مرة أخرى."
 
         except Exception as e:
+            print(f"[Gemini][analyze_currency_image] Exception: {e}")
             return f"خطأ: {str(e)}"
 
     def get_quick_form_explanation(self, image: Image.Image, language: str) -> str:
@@ -360,15 +587,61 @@ Respond directly and helpfully in 2-4 sentences only. Do not use markdown format
 """
 
             image_part = {"mime_type": "image/png", "data": img_str}
+            
+            # Add safety settings to reduce blocking
+            safety_settings = [
+                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+            ]
+            
             response = self.model.generate_content(
                 [prompt, image_part],
                 generation_config=genai.GenerationConfig(
                     temperature=0.2,
                     candidate_count=1,
-                    max_output_tokens=800
+                    max_output_tokens=9000
                 ),
+                safety_settings=safety_settings,
                 stream=False
             )
+            
+            # Check response and handle errors
+            try:
+                if hasattr(response, 'candidates') and response.candidates:
+                    candidate = response.candidates[0]
+                    finish_reason = candidate.finish_reason.name if hasattr(candidate.finish_reason, 'name') else str(candidate.finish_reason)
+                    
+                    # Check if response was blocked
+                    if finish_reason in ["SAFETY", "RECITATION", "OTHER"] or finish_reason in ["1", "2", "3"]:
+                        print(f"[Gemini][get_quick_form_explanation] Response blocked due to: {finish_reason}")
+                        fallback_msg = "عذراً، لم نتمكن من تحليل النموذج بسبب قيود النظام." if language == 'rtl' else "Sorry, unable to analyze the form due to system restrictions."
+                        return fallback_msg
+                        
+                    # Check if not STOP (4) or MAX_TOKENS (3)
+                    if finish_reason not in ["STOP", "4", "MAX_TOKENS", "3"]:
+                        print(f"[Gemini][get_quick_form_explanation] Unexpected finish_reason: {finish_reason}")
+                        fallback_msg = "فشل في تحليل النموذج." if language == 'rtl' else "Failed to analyze the form."
+                        return fallback_msg
+                else:
+                    fallback_msg = "لم نتمكن من تحليل النموذج." if language == 'rtl' else "Unable to analyze the form."
+                    return fallback_msg
+                    
+                # Try to get text safely
+                response_text = getattr(response, 'text', None)
+                if not response_text:
+                    fallback_msg = "لم نتمكن من الحصول على نتيجة التحليل." if language == 'rtl' else "Could not get analysis result."
+                    return fallback_msg
+                    
+                explanation = self.remove_markdown_formatting(response_text.strip())
+                logger.info(f"Form explanation generated: {explanation[:100]}...")
+                return explanation
+                
+            except Exception as e:
+                print(f"[Gemini][get_quick_form_explanation] Exception accessing response: {e}")
+                fallback_msg = "خطأ في الحصول على النتيجة." if language == 'rtl' else "Error getting result."
+                return fallback_msg
             
             if not response or not response.text:
                 logger.warning("Empty response from Gemini for form explanation")
@@ -408,11 +681,49 @@ Respond directly and helpfully in 2-4 sentences only. Do not use markdown format
             # Create analysis prompt
             prompt = self._create_bulk_analysis_prompt(slides_data, language)
 
-            # Get AI analysis
-            response = self.model.generate_content(prompt)
-            analysis_result = self._parse_bulk_analysis_response(response.text, language)
+            # Add safety settings to reduce blocking
+            safety_settings = [
+                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+            ]
 
-            return analysis_result
+            # Get AI analysis
+            response = self.model.generate_content(
+                prompt,
+                safety_settings=safety_settings
+            )
+            
+            # Check response and handle errors
+            try:
+                if hasattr(response, 'candidates') and response.candidates:
+                    candidate = response.candidates[0]
+                    finish_reason = candidate.finish_reason.name if hasattr(candidate.finish_reason, 'name') else str(candidate.finish_reason)
+                    
+                    # Check if response was blocked
+                    if finish_reason in ["SAFETY", "RECITATION", "OTHER"] or finish_reason in ["1", "2", "3"]:
+                        print(f"[Gemini][analyze_document_bulk] Response blocked due to: {finish_reason}")
+                        return self._create_fallback_analysis(document_data, language)
+                        
+                    # Check if not STOP (4)
+                    if finish_reason not in ["STOP", "4"]:
+                        print(f"[Gemini][analyze_document_bulk] Unexpected finish_reason: {finish_reason}")
+                        return self._create_fallback_analysis(document_data, language)
+                else:
+                    return self._create_fallback_analysis(document_data, language)
+                    
+                # Try to get text safely
+                response_text = getattr(response, 'text', None)
+                if not response_text:
+                    return self._create_fallback_analysis(document_data, language)
+                    
+                analysis_result = self._parse_bulk_analysis_response(response_text, language)
+                return analysis_result
+                
+            except Exception as e:
+                print(f"[Gemini][analyze_document_bulk] Exception accessing response: {e}")
+                return self._create_fallback_analysis(document_data, language)
 
         except Exception as e:
             logger.error(f"Error in bulk analysis: {e}")
@@ -493,11 +804,52 @@ Respond directly and helpfully in 2-4 sentences only. Do not use markdown format
                 "data": image_base64
             }
             
-            response = self.model.generate_content([prompt, image_part])
+            # Add safety settings to reduce blocking
+            safety_settings = [
+                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+            ]
             
-            # إزالة تنسيقات Markdown من الرد
-            clean_response = self.remove_markdown_formatting(response.text)
-            return clean_response
+            response = self.model.generate_content(
+                [prompt, image_part],
+                safety_settings=safety_settings
+            )
+            
+            # Check response and handle errors
+            try:
+                if hasattr(response, 'candidates') and response.candidates:
+                    candidate = response.candidates[0]
+                    finish_reason = candidate.finish_reason.name if hasattr(candidate.finish_reason, 'name') else str(candidate.finish_reason)
+                    
+                    # Check if response was blocked
+                    if finish_reason in ["SAFETY", "RECITATION", "OTHER"] or finish_reason in ["1", "2", "3"]:
+                        fallback_msg = "عذراً، لم نتمكن من تحليل الصورة بسبب قيود النظام." if language == "arabic" else "Sorry, unable to analyze the image due to system restrictions."
+                        return fallback_msg
+                        
+                    # Check if not STOP (4)
+                    if finish_reason not in ["STOP", "4"]:
+                        fallback_msg = "فشل في تحليل الصورة." if language == "arabic" else "Failed to analyze the image."
+                        return fallback_msg
+                else:
+                    fallback_msg = "لم نتمكن من تحليل الصورة." if language == "arabic" else "Unable to analyze the image."
+                    return fallback_msg
+                    
+                # Try to get text safely
+                response_text = getattr(response, 'text', None)
+                if not response_text:
+                    fallback_msg = "لم نتمكن من الحصول على نتيجة التحليل." if language == "arabic" else "Could not get analysis result."
+                    return fallback_msg
+                    
+                # إزالة تنسيقات Markdown من الرد
+                clean_response = self.remove_markdown_formatting(response_text)
+                return clean_response
+                
+            except Exception as e:
+                print(f"[Gemini][analyze_page_image] Exception accessing response: {e}")
+                fallback_msg = "خطأ في الحصول على النتيجة." if language == "arabic" else "Error getting result."
+                return fallback_msg
             
         except Exception as e:
             logger.error(f"Error analyzing page image: {e}")
@@ -536,18 +888,57 @@ Analyze the image and answer the question in detail and helpfully in English.
                 "data": image_base64
             }
             
+            # Add safety settings to reduce blocking
+            safety_settings = [
+                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+            ]
+            
             response = self.model.generate_content(
                 [prompt, image_part],
                 generation_config=genai.GenerationConfig(
                     temperature=0.3,
                     candidate_count=1,
                     max_output_tokens=2000
-                )
+                ),
+                safety_settings=safety_settings
             )
             
-            # إزالة تنسيقات Markdown من الرد
-            clean_response = self.remove_markdown_formatting(response.text)
-            return clean_response
+            # Check response and handle errors
+            try:
+                if hasattr(response, 'candidates') and response.candidates:
+                    candidate = response.candidates[0]
+                    finish_reason = candidate.finish_reason.name if hasattr(candidate.finish_reason, 'name') else str(candidate.finish_reason)
+                    
+                    # Check if response was blocked
+                    if finish_reason in ["SAFETY", "RECITATION", "OTHER"] or finish_reason in ["1", "2", "3"]:
+                        fallback_msg = "عذراً، لم نتمكن من تحليل الصورة والإجابة على السؤال بسبب قيود النظام." if language == "arabic" else "Sorry, unable to analyze the image and answer the question due to system restrictions."
+                        return fallback_msg
+                        
+                    # Check if not STOP (4)
+                    if finish_reason not in ["STOP", "4"]:
+                        fallback_msg = "فشل في تحليل الصورة والإجابة على السؤال." if language == "arabic" else "Failed to analyze the image and answer the question."
+                        return fallback_msg
+                else:
+                    fallback_msg = "لم نتمكن من تحليل الصورة والإجابة على السؤال." if language == "arabic" else "Unable to analyze the image and answer the question."
+                    return fallback_msg
+                    
+                # Try to get text safely
+                response_text = getattr(response, 'text', None)
+                if not response_text:
+                    fallback_msg = "لم نتمكن من الحصول على نتيجة التحليل." if language == "arabic" else "Could not get analysis result."
+                    return fallback_msg
+                    
+                # إزالة تنسيقات Markdown من الرد
+                clean_response = self.remove_markdown_formatting(response_text)
+                return clean_response
+                
+            except Exception as e:
+                print(f"[Gemini][analyze_page_with_question] Exception accessing response: {e}")
+                fallback_msg = "خطأ في الحصول على النتيجة." if language == "arabic" else "Error getting result."
+                return fallback_msg
             
         except Exception as e:
             logger.error(f"Error analyzing page with question: {e}")
@@ -817,6 +1208,15 @@ Don't be overly strict on minor imperfections.
 """
 
             image_part = {"mime_type": "image/png", "data": img_str}
+            
+            # Add safety settings to reduce blocking
+            safety_settings = [
+                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+            ]
+            
             response = self.model.generate_content(
                 [prompt, image_part],
                 generation_config=genai.GenerationConfig(
@@ -826,10 +1226,41 @@ Don't be overly strict on minor imperfections.
                     top_p=0.1,
                     max_output_tokens=1000
                 ),
+                safety_settings=safety_settings,
                 stream=False
             )
             
-            if not response.candidates or response.candidates[0].finish_reason.name != "STOP":
+            # Check response and handle errors
+            try:
+                if hasattr(response, 'candidates') and response.candidates:
+                    candidate = response.candidates[0]
+                    finish_reason = candidate.finish_reason.name if hasattr(candidate.finish_reason, 'name') else str(candidate.finish_reason)
+                    
+                    # Check if response was blocked
+                    if finish_reason in ["SAFETY", "RECITATION", "OTHER"] or finish_reason in ["1", "2", "3"]:
+                        fallback_msg = "تم فحص الصورة - قد تحتاج لتحسين الجودة" if language_direction == 'rtl' else "Image checked - may need quality improvement"
+                        return True, fallback_msg
+                        
+                    # Check if not STOP (4)
+                    if finish_reason not in ["STOP", "4"]:
+                        fallback_msg = "تم فحص الصورة" if language_direction == 'rtl' else "Image checked"
+                        return True, fallback_msg
+                else:
+                    fallback_msg = "تم فحص الصورة" if language_direction == 'rtl' else "Image checked"
+                    return True, fallback_msg
+                    
+                # Try to get text safely
+                response_text = getattr(response, 'text', None)
+                if not response_text:
+                    fallback_msg = "تم فحص الصورة" if language_direction == 'rtl' else "Image checked"
+                    return True, fallback_msg
+                    
+            except Exception as e:
+                print(f"[Gemini][check_image_quality_with_language] Exception accessing response: {e}")
+                fallback_msg = "تم فحص الصورة" if language_direction == 'rtl' else "Image checked"
+                return True, fallback_msg
+            
+            if not response.candidates or response.candidates[0].finish_reason.name not in ["STOP"] and str(response.candidates[0].finish_reason) not in ["4"]:
                 fallback_msg = "تم فحص الصورة" if language_direction == 'rtl' else "Image checked"
                 return True, fallback_msg
                 
@@ -893,6 +1324,15 @@ Don't be overly strict on minor imperfections.
 """
 
             image_part = {"mime_type": "image/png", "data": img_str}
+            
+            # Add safety settings to reduce blocking
+            safety_settings = [
+                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+            ]
+            
             response = self.model.generate_content(
                 [prompt, image_part],
                 generation_config=genai.GenerationConfig(
@@ -900,10 +1340,41 @@ Don't be overly strict on minor imperfections.
                     candidate_count=1,
                     max_output_tokens=1000
                 ),
+                safety_settings=safety_settings,
                 stream=False
             )
             
-            if not response.candidates or response.candidates[0].finish_reason.name != "STOP":
+            # Check response and handle errors
+            try:
+                if hasattr(response, 'candidates') and response.candidates:
+                    candidate = response.candidates[0]
+                    finish_reason = candidate.finish_reason.name if hasattr(candidate.finish_reason, 'name') else str(candidate.finish_reason)
+                    print(f"[Gemini][check_currency_image_quality] finish_reason: {finish_reason}")
+                    
+                    # Check if response was blocked
+                    if finish_reason in ["SAFETY", "RECITATION", "OTHER"] or finish_reason in ["1", "2", "3"]:
+                        print(f"[Gemini][check_currency_image_quality] Response blocked due to: {finish_reason}")
+                        return True, "تم فحص الصورة - قد تحتاج لتحسين الإضاءة"
+                        
+                    # Check if not STOP (4)
+                    if finish_reason not in ["STOP", "4"]:
+                        print(f"[Gemini][check_currency_image_quality] Unexpected finish_reason: {finish_reason}")
+                        return True, "تم فحص الصورة"
+                else:
+                    print("[Gemini][check_currency_image_quality] No candidates in response.")
+                    return True, "تم فحص الصورة"
+                    
+                # Try to get text safely
+                response_text = getattr(response, 'text', None)
+                if not response_text:
+                    print("[Gemini][check_currency_image_quality] No text in response.")
+                    return True, "تم فحص الصورة"
+                    
+            except Exception as e:
+                print(f"[Gemini][check_currency_image_quality] Exception accessing response: {e}")
+                return True, "تم فحص الصورة"
+            
+            if not response.candidates or response.candidates[0].finish_reason.name not in ["STOP"] and str(response.candidates[0].finish_reason) not in ["4"]:
                 return True, "تم فحص الصورة"
                 
             response_text = response.text.strip().replace("```json", "").replace("```", "").strip()

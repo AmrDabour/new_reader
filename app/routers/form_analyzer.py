@@ -90,9 +90,8 @@ async def check_file_quality(file: UploadFile = File(...)):
         form_explanation = ""
         if quality_good:
             try:
-                # For now, just test if Gemini works by calling the working function
-                explanation, _ = gemini_service.get_form_details(image, language_direction)
-                form_explanation = explanation or ""
+                # Get quick form explanation only (no field details)
+                form_explanation = gemini_service.get_quick_form_explanation(image, language_direction) or ""
             except Exception as e:
                 # If form explanation fails, continue without it
                 pass
