@@ -71,11 +71,23 @@ class ImageService:
         draw = ImageDraw.Draw(annotated)
         
         # --- Font setup ---
-        text_fields = [f for f in ui_fields if f.type == 'textbox' and f.box]
+        # Handle both dict and object formats for ui_fields
+        text_fields = []
+        for f in ui_fields:
+            if isinstance(f, dict):
+                field_type = f.get('type', '')
+                field_box = f.get('box', [])
+            else:
+                field_type = getattr(f, 'type', '')
+                field_box = getattr(f, 'box', [])
+            
+            if field_type in ['textbox', 'text'] and field_box:
+                text_fields.append(field_box)
+        
         if not text_fields:
             avg_height = 20
         else:
-            avg_height = sum(f.box[3] for f in text_fields) / len(text_fields)
+            avg_height = sum(box[3] for box in text_fields) / len(text_fields)
         default_font_size = max(12, int(avg_height * 0.6))  # Ensure minimum font size
 
         # Try multiple font options for better Arabic support
@@ -119,9 +131,17 @@ class ImageService:
                 # Find the specific signature field by its ID
                 signature_field_found = False
                 for field in ui_fields:
-                    if field.box_id == signature_field_id and field.box:
+                    # Handle both dict and object formats
+                    if isinstance(field, dict):
+                        field_box_id = field.get('box_id', '')
+                        field_box = field.get('box', [])
+                    else:
+                        field_box_id = getattr(field, 'box_id', '')
+                        field_box = getattr(field, 'box', [])
+                    
+                    if field_box_id == signature_field_id and field_box:
                         signature_field_found = True
-                        x, y, w, h = map(int, field.box)  # Convert to integers
+                        x, y, w, h = map(int, field_box)  # Convert to integers
                         
                         # Resize signature to fit the box with better scaling
                         # Calculate aspect ratios
@@ -149,8 +169,8 @@ class ImageService:
                         annotated.paste(sig_image, (paste_x, paste_y), sig_image)
                         
                         # Remove this field from text processing
-                        if field.box_id in texts_dict:
-                            del texts_dict[field.box_id]
+                        if field_box_id in texts_dict:
+                            del texts_dict[field_box_id]
                         break
                     
             except Exception as e:
@@ -164,8 +184,18 @@ class ImageService:
                 sig_image = Image.open(io.BytesIO(sig_bytes)).convert("RGBA")
 
                 for field in ui_fields:
-                    if any(keyword in field.label.lower() for keyword in ["signature", "توقيع", "امضاء"]) and field.box:
-                        x, y, w, h = map(int, field.box)  # Convert to integers
+                    # Handle both dict and object formats
+                    if isinstance(field, dict):
+                        field_label = field.get('label', '').lower()
+                        field_box = field.get('box', [])
+                        field_box_id = field.get('box_id', '')
+                    else:
+                        field_label = getattr(field, 'label', '').lower()
+                        field_box = getattr(field, 'box', [])
+                        field_box_id = getattr(field, 'box_id', '')
+                    
+                    if any(keyword in field_label for keyword in ["signature", "توقيع", "امضاء"]) and field_box:
+                        x, y, w, h = map(int, field_box)  # Convert to integers
                         
                         # Apply the same improved scaling logic
                         box_ratio = w / h
@@ -185,39 +215,35 @@ class ImageService:
                         
                         annotated.paste(sig_image, (paste_x, paste_y), sig_image)
                         
-                        if field.box_id in texts_dict:
-                            del texts_dict[field.box_id]
+                        if field_box_id in texts_dict:
+                            del texts_dict[field_box_id]
                         break
             except Exception as e:
                 print(f"Error processing signature: {e}")
 
         # --- Text and Checkbox Drawing ---
         for field in ui_fields:
-            box_id = field.box_id
+            # Handle both dict and object formats
+            if isinstance(field, dict):
+                box_id = field.get('box_id', '')
+                field_box = field.get('box', [])
+                field_type = field.get('type', '')
+            else:
+                box_id = getattr(field, 'box_id', '')
+                field_box = getattr(field, 'box', [])
+                field_type = getattr(field, 'type', '')
+            
             value = texts_dict.get(box_id)
-            field_box = field.box
             
             if value and field_box:
                 x, y, w, h = field_box
-                field_type = field.type
+                
+                # Handle field type variations
+                if field_type in ['checkbox'] and value is True:
+                    # استخدام طرق متعددة لرسم علامة الصح
+                    self._draw_checkbox_checkmark(draw, x, y, w, h)
 
-                if field_type == 'checkbox' and value is True:
-                    checkmark_char = '✓'
-                    font_size = int(min(w, h) * 0.9)
-                    try: font = ImageFont.truetype("seguisym.ttf", font_size)
-                    except IOError: font = ImageFont.load_default()
-                    
-                    try:
-                        text_bbox = draw.textbbox((0, 0), checkmark_char, font=font)
-                        text_w, text_h = text_bbox[2] - text_bbox[0], text_bbox[3] - text_bbox[1]
-                    except AttributeError:
-                        text_w, text_h = draw.textsize(checkmark_char, font=font)
-                    
-                    text_x = x + (w - text_w) / 2
-                    text_y = y + (h - text_h) / 2
-                    draw.text((text_x, text_y), checkmark_char, fill="black", font=font)
-
-                elif field_type == 'textbox' and isinstance(value, str) and value.strip():
+                elif field_type in ['textbox', 'text'] and isinstance(value, str) and value.strip():
                     padding = 4
                     is_arabic = is_arabic_text(value)
                     
@@ -291,3 +317,146 @@ class ImageService:
                     'box': field_data['box']
                 })
         return final_fields
+
+    def _draw_checkbox_checkmark(self, draw, x, y, w, h):
+        """
+        رسم علامة الصح في checkbox بطرق متعددة لضمان الوضوح
+        """
+        try:
+            # الطريقة الأولى: محاولة استخدام أفضل خطوط متاحة لعلامة الصح
+            checkmark_symbols = ['✓', '✔', '☑', '✅', 'X']  # خيارات متعددة
+            font_size = int(min(w, h) * 0.8)
+            
+            # قائمة خطوط يمكن أن تدعم رموز الصح
+            font_options = [
+                # خطوط Windows
+                "seguisym.ttf",
+                "wingding.ttf", 
+                "wingdings.ttf",
+                "symbols.ttf",
+                # خطوط Linux
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+                "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+                # خطوط عامة
+                "arial.ttf",
+                "helvetica.ttf"
+            ]
+            
+            font_found = False
+            best_font = None
+            working_symbol = None
+            
+            # البحث عن أفضل خط ورمز يعملان معاً
+            for font_path in font_options:
+                try:
+                    test_font = ImageFont.truetype(font_path, font_size)
+                    for symbol in checkmark_symbols:
+                        try:
+                            # اختبار أن الخط يدعم الرمز
+                            test_bbox = draw.textbbox((0, 0), symbol, font=test_font)
+                            if test_bbox[2] > test_bbox[0] and test_bbox[3] > test_bbox[1]:
+                                best_font = test_font
+                                working_symbol = symbol
+                                font_found = True
+                                print(f"✅ Found working checkbox font: {font_path} with symbol: {symbol}")
+                                break
+                        except:
+                            continue
+                    if font_found:
+                        break
+                except (IOError, OSError):
+                    continue
+            
+            if font_found and best_font and working_symbol:
+                # رسم الرمز باستخدام أفضل خط
+                try:
+                    text_bbox = draw.textbbox((0, 0), working_symbol, font=best_font)
+                    text_w, text_h = text_bbox[2] - text_bbox[0], text_bbox[3] - text_bbox[1]
+                except AttributeError:
+                    text_w, text_h = draw.textsize(working_symbol, font=best_font)
+                
+                text_x = x + (w - text_w) / 2
+                text_y = y + (h - text_h) / 2
+                draw.text((text_x, text_y), working_symbol, fill="black", font=best_font)
+                return
+            
+            # الطريقة الثانية: رسم علامة صح بالخطوط (fallback)
+            print("⚠️ No suitable font found for checkbox symbol, drawing manually")
+            self._draw_manual_checkmark(draw, x, y, w, h)
+            
+        except Exception as e:
+            print(f"⚠️ Error drawing checkbox checkmark: {e}")
+            # الطريقة الثالثة: رسم بدائي بسيط
+            self._draw_simple_checkmark(draw, x, y, w, h)
+
+    def _draw_manual_checkmark(self, draw, x, y, w, h):
+        """
+        رسم علامة صح يدوياً باستخدام خطوط
+        """
+        try:
+            # تحديد سماكة الخط بناءً على حجم المربع
+            line_width = max(2, int(min(w, h) * 0.1))
+            
+            # حساب نقاط علامة الصح
+            center_x = x + w / 2
+            center_y = y + h / 2
+            
+            # تحديد نقاط الصح: خط أول من اليسار للوسط، خط ثاني من الوسط لليمين
+            # نقطة البداية (يسار)
+            start_x = x + w * 0.2
+            start_y = center_y
+            
+            # نقطة الوسط (أسفل)
+            mid_x = x + w * 0.4
+            mid_y = y + h * 0.7
+            
+            # نقطة النهاية (يمين أعلى)
+            end_x = x + w * 0.8
+            end_y = y + h * 0.3
+            
+            # رسم الخط الأول (من اليسار للوسط)
+            draw.line([(start_x, start_y), (mid_x, mid_y)], fill="black", width=line_width)
+            
+            # رسم الخط الثاني (من الوسط لليمين)
+            draw.line([(mid_x, mid_y), (end_x, end_y)], fill="black", width=line_width)
+            
+            print("✅ Drew manual checkmark successfully")
+            
+        except Exception as e:
+            print(f"⚠️ Error in manual checkmark: {e}")
+            self._draw_simple_checkmark(draw, x, y, w, h)
+
+    def _draw_simple_checkmark(self, draw, x, y, w, h):
+        """
+        رسم علامة صح بسيطة جداً (الطريقة الأخيرة)
+        """
+        try:
+            # رسم X بسيط كبديل
+            line_width = max(1, int(min(w, h) * 0.08))
+            margin = int(min(w, h) * 0.2)
+            
+            # رسم خطين متقاطعين يشكلان X
+            draw.line(
+                [(x + margin, y + margin), (x + w - margin, y + h - margin)], 
+                fill="black", width=line_width
+            )
+            draw.line(
+                [(x + w - margin, y + margin), (x + margin, y + h - margin)], 
+                fill="black", width=line_width
+            )
+            
+            print("✅ Drew simple X checkmark as fallback")
+            
+        except Exception as e:
+            print(f"❌ Failed to draw even simple checkmark: {e}")
+            # في النهاية، ارسم مربع مليء
+            try:
+                margin = int(min(w, h) * 0.3)
+                draw.rectangle(
+                    [x + margin, y + margin, x + w - margin, y + h - margin], 
+                    fill="black"
+                )
+                print("✅ Drew filled rectangle as final fallback")
+            except:
+                pass

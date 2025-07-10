@@ -3,6 +3,9 @@ import io
 from PIL import Image
 import base64
 import os
+import time
+import re
+import unicodedata
 from pathlib import Path
 
 from app.services.yolo import YOLOService
@@ -870,7 +873,8 @@ async def explain_pdf_page(session_id: str = Form(...), page_number: int = Form(
         form_explanation = ""
         if quality_good:
             try:
-                explanation, _ = gemini_service.get_form_details(corrected_image, language_direction)
+                # استخدام فانكشن الشرح فقط بدون تحليل الحقول
+                explanation = gemini_service.get_quick_form_explanation(corrected_image, language_direction)
                 form_explanation = explanation or f"هذه هي الصفحة رقم {page_number} من المستند."
             except Exception as e:
                 form_explanation = f"هذه هي الصفحة رقم {page_number} من المستند. (لم يتمكن من تحليل المحتوى تلقائياً)"
@@ -930,6 +934,29 @@ async def analyze_pdf_page(session_id: str = Form(...), page_number: int = Form(
                 status_code=400, 
                 detail=f"رقم صفحة غير صحيح. يجب أن يكون بين 1 و {pdf_session['total_pages']}"
             )
+        
+        # التحقق من وجود تحليل سابق لهذه الصفحة
+        existing_analysis = next(
+            (p for p in pdf_session.get("analyzed_pages", []) if p["page_number"] == page_number),
+            None
+        )
+        
+        if existing_analysis:
+            print(f"📋 Page {page_number} already analyzed, returning existing analysis")
+            return {
+                "session_id": session_id,
+                "page_number": page_number,
+                "total_pages": pdf_session["total_pages"],
+                "has_fields": existing_analysis.get("has_fields", False),
+                "fields": existing_analysis.get("fields", []),
+                "language_direction": existing_analysis.get("language_direction", "rtl"),
+                "image_width": existing_analysis.get("image_width", 0),
+                "image_height": existing_analysis.get("image_height", 0),
+                "has_next_page": page_number < pdf_session["total_pages"],
+                "next_page_number": page_number + 1 if page_number < pdf_session["total_pages"] else None,
+                "all_pages_analyzed": len(pdf_session.get("analyzed_pages", [])) >= pdf_session["total_pages"],
+                "field_count": len(existing_analysis.get("fields", []))
+            }
         
         # البحث عن بيانات الصفحة
         page_data = next(
@@ -1040,6 +1067,15 @@ async def analyze_pdf_page(session_id: str = Form(...), page_number: int = Form(
         except Exception as img_save_error:
             print(f"Warning: Could not save corrected image for page {page_number}: {img_save_error}")
         
+        # التحقق من وجود تحليل سابق لهذه الصفحة وحذفه لتجنب التكرار
+        existing_analysis_indices = [
+            i for i, p in enumerate(pdf_session["analyzed_pages"]) 
+            if p["page_number"] == page_number
+        ]
+        for idx in reversed(existing_analysis_indices):  # حذف من الخلف للأمام لتجنب مشاكل الفهرسة
+            pdf_session["analyzed_pages"].pop(idx)
+            print(f"🗑️ Removed duplicate analysis for page {page_number}")
+        
         pdf_session["analyzed_pages"].append(page_analysis)
         pdf_session["current_stage"] = "analyze"
         pdf_session["current_page"] = page_number
@@ -1122,9 +1158,13 @@ async def fill_pdf_page(
             for field in ui_fields:
                 if isinstance(field, dict):
                     # توحيد أنواع الحقول
-                    field_type = field.get('type', 'text')
-                    if field_type == 'textbox':
-                        field_type = 'text'  # تحويل textbox إلى text
+                    field_type = field.get('type', 'textbox')
+                    
+                    # تحويل الأنواع المختلفة لتوحيد المعالجة
+                    if field_type in ['text', 'textbox']:
+                        field_type = 'textbox'
+                    elif field_type in ['checkbox', 'check']:
+                        field_type = 'checkbox'
                     
                     # تأكد من وجود الخصائص المطلوبة
                     validated_field = {
@@ -1161,7 +1201,7 @@ async def fill_pdf_page(
         final_image_bytes = buffered.getvalue()
         final_image_b64 = base64.b64encode(final_image_bytes).decode('utf-8')
         
-        # حفظ الصفحة المعبأة
+        # حفظ الصفحة المعبأة (مع استبدال أي نسخة سابقة)
         pdf_session["filled_pages"][page_number] = {
             "page_number": page_number,
             "image_data": final_image_bytes,
@@ -1173,6 +1213,9 @@ async def fill_pdf_page(
         }
         
         pdf_session["current_stage"] = "fill"
+        
+        print(f"✅ Page {page_number} filled and saved successfully")
+        print(f"📊 Current filled pages: {list(pdf_session['filled_pages'].keys())}")
         
         # تحديد ما إذا كانت هناك صفحة تالية
         has_next_page = page_number < pdf_session["total_pages"]
@@ -1263,38 +1306,207 @@ async def download_filled_pdf(session_id: str):
                     })
         
         # إنشاء PDF من الصفحات
-        filename = pdf_session.get("filename", "filled_form.pdf")
-        if not filename.lower().endswith('.pdf'):
-            filename = filename + "_filled.pdf"
-        else:
-            filename = filename.replace('.pdf', '_filled.pdf')
+        original_filename = pdf_session.get("filename", "filled_form.pdf")
+        
+        # تنظيف اسم الملف من الأحرف غير المدعومة وتحويل العربية لـ ASCII
+        
+        def sanitize_filename(filename):
+            """تنظيف اسم الملف ليكون ASCII فقط ومتوافق مع جميع الأنظمة"""
+            try:
+                # إزالة الامتداد مؤقتاً
+                name, ext = filename.rsplit('.', 1) if '.' in filename else (filename, 'pdf')
+                
+                # تحويل إلى unicode normalized أولاً
+                name = unicodedata.normalize('NFKD', name)
+                
+                # إزالة جميع الأحرف غير ASCII (الاحتفاظ بـ ASCII فقط)
+                # هذا يشمل إزالة جميع الأحرف العربية والخاصة
+                ascii_chars = []
+                for char in name:
+                    if ord(char) < 128 and (char.isalnum() or char in ' -_'):
+                        ascii_chars.append(char)
+                
+                name = ''.join(ascii_chars)
+                
+                # تحويل المسافات والشرطات إلى underscore
+                name = re.sub(r'[-\s]+', '_', name)
+                
+                # تنظيف الشرطات السفلية المتكررة
+                name = re.sub(r'_+', '_', name).strip('_')
+                
+                # إزالة أي أحرف متبقية غير آمنة
+                name = re.sub(r'[^a-zA-Z0-9_]', '', name)
+                
+                # إذا كان الاسم فارغاً أو قصير جداً، استخدم اسم افتراضي
+                if len(name.strip()) < 3:
+                    name = "filled_form"
+                
+                # التأكد النهائي من أن الاسم ASCII فقط
+                final_name = f"{name}_filled.{ext}"
+                
+                # اختبار نهائي للـ ASCII
+                final_name.encode('ascii')
+                
+                return final_name
+                
+            except Exception as e:
+                print(f"⚠️ Error in sanitize_filename: {e}")
+                return "filled_form.pdf"
+        
+        # تطبيق التنظيف على اسم الملف
+        safe_filename = sanitize_filename(original_filename)
+        print(f"📝 Original filename: {original_filename}")
+        print(f"📝 Safe filename: {safe_filename}")
+        print(f"📝 Safe filename length: {len(safe_filename)}")
+        print(f"📝 Safe filename ASCII check: {all(ord(c) < 128 for c in safe_filename)}")
         
         try:
-            pdf_bytes = pdf_merger.create_pdf_from_images(pages_for_pdf, filename)
+            pdf_bytes = pdf_merger.create_pdf_from_images(pages_for_pdf, safe_filename)
             print(f"📄 PDF created successfully: {len(pdf_bytes)} bytes")
+            
+            # التحقق من صحة PDF
+            if len(pdf_bytes) == 0:
+                raise ValueError("PDF bytes is empty")
+                
         except Exception as merge_error:
             print(f"❌ PDF creation failed: {merge_error}")
             print(f"📄 Pages for PDF: {len(pages_for_pdf)}")
             for i, page in enumerate(pages_for_pdf):
-                print(f"   Page {i+1}: number={page['page_number']}, has_data={len(page['image_data'])} bytes")
+                page_size = len(page.get('image_data', b'')) if page.get('image_data') else 0
+                print(f"   Page {i+1}: number={page.get('page_number', 'N/A')}, has_data={page_size} bytes")
+            
+            # معلومات إضافية للتشخيص
+            print(f"📋 PDF Merger available: {pdf_merger.is_available()}")
+            print(f"📝 Original filename: {original_filename}")
+            print(f"📝 Safe filename: {safe_filename}")
+            
+            # تحليل نوع الخطأ
+            error_message = str(merge_error)
+            if "latin-1" in error_message or "codec" in error_message:
+                error_detail = "خطأ في ترميز اسم الملف - تم إصلاحه تلقائياً"
+            elif "PIL" in error_message or "image" in error_message.lower():
+                error_detail = "خطأ في معالجة الصور"
+            else:
+                error_detail = f"خطأ عام في إنشاء PDF: {error_message}"
+            
             raise HTTPException(
                 status_code=500,
-                detail=f"فشل في إنشاء PDF: {str(merge_error)}"
+                detail=error_detail
             )
         
         # تحديث حالة الجلسة
         pdf_session["current_stage"] = "complete"
         
+        # إنشاء header آمن لاسم الملف
+        # استخدام ASCII فقط لضمان التوافق الكامل
+        try:
+            # تأكيد مضاعف أن اسم الملف ASCII فقط
+            safe_filename.encode('ascii')
+            # اختبار إضافي: التأكد من عدم وجود أحرف خاصة في الاسم
+            if all(ord(c) < 128 for c in safe_filename):
+                content_disposition = f"attachment; filename={safe_filename}"
+                print(f"✅ Content-Disposition created successfully: {content_disposition}")
+            else:
+                raise ValueError("Non-ASCII characters detected")
+        except (UnicodeEncodeError, UnicodeDecodeError, ValueError) as encoding_error:
+            # إذا فشل، استخدم اسم افتراضي آمن بالكامل
+            timestamp = int(time.time())
+            default_filename = f"filled_form_{timestamp}.pdf"
+            content_disposition = f"attachment; filename={default_filename}"
+            print(f"⚠️ Used timestamped default filename due to encoding issue: {encoding_error}")
+            print(f"✅ Content-Disposition (fallback): {content_disposition}")
+        
+        # معالجة آمنة لاسم الملف الأصلي في headers
+        try:
+            # تنظيف اسم الملف الأصلي ليكون ASCII آمن للـ headers (بدون إضافة _filled)
+            if original_filename:
+                # إزالة الامتداد مؤقتاً
+                name, ext = original_filename.rsplit('.', 1) if '.' in original_filename else (original_filename, 'pdf')
+                
+                # تحويل إلى unicode normalized أولاً
+                name = unicodedata.normalize('NFKD', name)
+                
+                # إزالة جميع الأحرف غير ASCII (الاحتفاظ بـ ASCII فقط)
+                ascii_chars = []
+                for char in name:
+                    if ord(char) < 128 and (char.isalnum() or char in ' -_'):
+                        ascii_chars.append(char)
+                
+                name = ''.join(ascii_chars)
+                
+                # تحويل المسافات والشرطات إلى underscore
+                name = re.sub(r'[-\s]+', '_', name)
+                
+                # تنظيف الشرطات السفلية المتكررة
+                name = re.sub(r'_+', '_', name).strip('_')
+                
+                # إزالة أي أحرف متبقية غير آمنة
+                name = re.sub(r'[^a-zA-Z0-9_]', '', name)
+                
+                # إذا كان الاسم فارغاً أو قصير جداً، استخدم اسم افتراضي
+                if len(name.strip()) < 3:
+                    name = "original_file"
+                
+                # بناء الاسم النهائي (بدون _filled للاسم الأصلي)
+                original_filename_safe = f"{name}.{ext}"
+                
+                # اختبار نهائي للـ ASCII
+                original_filename_safe.encode('ascii')
+                
+            else:
+                original_filename_safe = "original_file.pdf"
+        except Exception as header_error:
+            print(f"⚠️ Error processing original filename for header: {header_error}")
+            original_filename_safe = "original_file.pdf"
+        
+        print(f"📋 Final headers:")
+        print(f"   Content-Disposition: {content_disposition}")
+        print(f"   X-Original-Filename: {original_filename_safe}")
+        print(f"   Content-Length: {len(pdf_bytes)}")
+        
+        # التحقق النهائي من صحة جميع headers قبل الإرسال
+        headers_dict = {
+            "Content-Disposition": content_disposition,
+            "Content-Length": str(len(pdf_bytes)),
+            "X-Session-ID": session_id,
+            "X-Total-Pages": str(total_pages),
+            "X-Filled-Pages": str(len(filled_pages)),
+            "X-Original-Filename": original_filename_safe
+        }
+        
+        # اختبار كل header للتأكد من صحته
+        for header_name, header_value in headers_dict.items():
+            try:
+                # التأكد أن القيمة string
+                header_value_str = str(header_value)
+                # التأكد أن القيمة ASCII
+                header_value_str.encode('ascii')
+                # التأكد أن القيمة لا تحتوي على أحرف خاصة أو مسافات في البداية/النهاية
+                if header_name in ["X-Original-Filename", "Content-Disposition"]:
+                    # إزالة أي مسافات أو أحرف خاصة
+                    header_value_str = header_value_str.strip()
+                    if not header_value_str or len(header_value_str) < 3:
+                        if header_name == "X-Original-Filename":
+                            headers_dict[header_name] = "original_file.pdf"
+                        elif header_name == "Content-Disposition":
+                            headers_dict[header_name] = "attachment; filename=filled_form.pdf"
+                    else:
+                        headers_dict[header_name] = header_value_str
+                print(f"✅ Header {header_name} validated: {headers_dict[header_name]}")
+            except Exception as header_validation_error:
+                print(f"⚠️ Header validation failed for {header_name}: {header_validation_error}")
+                # تطبيق قيم افتراضية آمنة
+                if header_name == "X-Original-Filename":
+                    headers_dict[header_name] = "original_file.pdf"
+                elif header_name == "Content-Disposition":
+                    headers_dict[header_name] = "attachment; filename=filled_form.pdf"
+                else:
+                    headers_dict[header_name] = str(header_value).encode('ascii', errors='ignore').decode('ascii')
+        
         return Response(
             content=pdf_bytes,
             media_type="application/pdf",
-            headers={
-                "Content-Disposition": f"attachment; filename={filename}",
-                "Content-Length": str(len(pdf_bytes)),
-                "X-Session-ID": session_id,
-                "X-Total-Pages": str(total_pages),
-                "X-Filled-Pages": str(len(filled_pages))
-            }
+            headers=headers_dict
         )
         
     except HTTPException:
