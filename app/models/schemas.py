@@ -35,8 +35,8 @@ class AnnotateImageRequest(BaseModel):
     original_image_b64: str
     texts_dict: Dict[str, Any]
     ui_fields: List[UIField]
-    signature_image_b64: Optional[str] = None # حقل جديد لاستقبال صورة التوقيع
-    signature_field_id: Optional[str] = None # معرف حقل التوقيع لتحديد مكان وضع الصورة
+    signature_image_b64: Optional[str] = None # New field to receive signature image
+    signature_field_id: Optional[str] = None # Signature field ID to determine image placement
 
 # =============================================================================
 # MONEY READER SCHEMAS
@@ -148,12 +148,6 @@ class ErrorResponse(BaseModel):
     error: str
     detail: str
     status_code: int
-
-# --- Health Check ---
-class HealthResponse(BaseModel):
-    status: str
-    service: str
-    active_sessions: int = 0
 
 # =============================================================================
 # PDF FORM ANALYSIS SCHEMAS

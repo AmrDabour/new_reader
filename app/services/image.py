@@ -94,7 +94,7 @@ class ImageService:
         arabic_font = None
         default_font = None
         
-        # استخدام مدير خط Amiri للحصول على أفضل خط عربي
+        # Use Amiri font manager to get best Arabic font
         arabic_font = amiri_manager.get_arabic_font(default_font_size)
         
         # خطوط افتراضية للنصوص الإنجليزية
@@ -113,14 +113,9 @@ class ImageService:
             except (IOError, OSError):
                 continue
         
-        # الاحتياط في حالة عدم وجود خطوط
+        # Fallback in case of no fonts
         if default_font is None:
             default_font = ImageFont.load_default()
-            
-        # طباعة معلومات الخطوط المحملة
-        font_info = amiri_manager.get_font_info()
-        print(f"🎯 نوع الخط المستخدم للعربية: {font_info['font_name']}")
-        print(f"📍 مسار الخط: {font_info['best_font_path']}")
 
         # --- Signature Handling ---
         if signature_image_b64 and signature_field_id:
@@ -174,9 +169,7 @@ class ImageService:
                         break
                     
             except Exception as e:
-                print(f"Error processing signature: {e}")
-                import traceback
-                traceback.print_exc()
+                pass
         elif signature_image_b64:
             # Fallback: if signature_field_id is not provided, use the old method
             try:
@@ -219,7 +212,7 @@ class ImageService:
                             del texts_dict[field_box_id]
                         break
             except Exception as e:
-                print(f"Error processing signature: {e}")
+                pass
 
         # --- Text and Checkbox Drawing ---
         for field in ui_fields:
@@ -240,7 +233,7 @@ class ImageService:
                 
                 # Handle field type variations
                 if field_type in ['checkbox'] and value is True:
-                    # استخدام طرق متعددة لرسم علامة الصح
+                    # Use multiple methods to draw checkmark
                     self._draw_checkbox_checkmark(draw, x, y, w, h)
 
                 elif field_type in ['textbox', 'text'] and isinstance(value, str) and value.strip():
@@ -249,8 +242,8 @@ class ImageService:
                     
                     # Enhanced Arabic text processing using Amiri font manager
                     if is_arabic:
-                        # استخدام الدالة الجديدة لمعالجة النص العربي بشكل صحيح
-                        # نحتاج إلى إعادة تشكيل الحروف فقط بدون عكس الاتجاه
+                        # Use new function to process Arabic text correctly
+                        # We need to reshape only without reversing direction
                         display_text = reshape_arabic_text(value, for_display=False)
                         font = arabic_font
                     else:
@@ -271,11 +264,10 @@ class ImageService:
                         new_font_size = max(8, int(default_font_size * scale_factor))
                         
                         if is_arabic:
-                            # استخدام مدير Amiri للحصول على خط بحجم جديد
+                            # Use Amiri manager to get font with new size
                             font = amiri_manager.get_arabic_font(new_font_size)
-                            print(f"🎯 تعديل حجم خط Amiri إلى: {new_font_size}")
                         else:
-                            # تحديث الخط الافتراضي بالحجم الجديد
+                            # Update default font with new size
                             for font_path in default_font_options:
                                 try:
                                     font = ImageFont.truetype(font_path, new_font_size)
@@ -291,7 +283,7 @@ class ImageService:
                     
                     if is_arabic:
                         # Right-align Arabic text and use correct text direction
-                        # النص العربي تم إعادة تشكيله فقط وبالفعل في الاتجاه الصحيح من اليمين لليسار
+                        # Arabic text is only reshaped and already in correct right-to-left direction
                         draw.text((x + w - padding, draw_y), display_text, fill="black", font=font, anchor="rm")
                     else:
                         # Left-align English text
@@ -320,25 +312,25 @@ class ImageService:
 
     def _draw_checkbox_checkmark(self, draw, x, y, w, h):
         """
-        رسم علامة الصح في checkbox بطرق متعددة لضمان الوضوح
+        Draw checkbox checkmark using multiple methods to ensure clarity
         """
         try:
-            # الطريقة الأولى: محاولة استخدام أفضل خطوط متاحة لعلامة الصح
-            checkmark_symbols = ['✓', '✔', '☑', '✅', 'X']  # خيارات متعددة
+            # First method: try using best available fonts for checkmark
+            checkmark_symbols = ['✓', '✔', '☑', 'X']  # Multiple options
             font_size = int(min(w, h) * 0.8)
             
-            # قائمة خطوط يمكن أن تدعم رموز الصح
+            # List of fonts that can support checkmark symbols
             font_options = [
-                # خطوط Windows
+                # Windows fonts
                 "seguisym.ttf",
                 "wingding.ttf", 
                 "wingdings.ttf",
                 "symbols.ttf",
-                # خطوط Linux
+                # Linux fonts
                 "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
                 "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
                 "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
-                # خطوط عامة
+                # General fonts
                 "arial.ttf",
                 "helvetica.ttf"
             ]
@@ -347,19 +339,18 @@ class ImageService:
             best_font = None
             working_symbol = None
             
-            # البحث عن أفضل خط ورمز يعملان معاً
+            # Search for best font and symbol that work together
             for font_path in font_options:
                 try:
                     test_font = ImageFont.truetype(font_path, font_size)
                     for symbol in checkmark_symbols:
                         try:
-                            # اختبار أن الخط يدعم الرمز
+                            # Test that font supports the symbol
                             test_bbox = draw.textbbox((0, 0), symbol, font=test_font)
                             if test_bbox[2] > test_bbox[0] and test_bbox[3] > test_bbox[1]:
                                 best_font = test_font
                                 working_symbol = symbol
                                 font_found = True
-                                print(f"✅ Found working checkbox font: {font_path} with symbol: {symbol}")
                                 break
                         except:
                             continue
@@ -369,7 +360,7 @@ class ImageService:
                     continue
             
             if font_found and best_font and working_symbol:
-                # رسم الرمز باستخدام أفضل خط
+                # Draw symbol using best font
                 try:
                     text_bbox = draw.textbbox((0, 0), working_symbol, font=best_font)
                     text_w, text_h = text_bbox[2] - text_bbox[0], text_bbox[3] - text_bbox[1]
@@ -381,28 +372,26 @@ class ImageService:
                 draw.text((text_x, text_y), working_symbol, fill="black", font=best_font)
                 return
             
-            # الطريقة الثانية: رسم علامة صح بالخطوط (fallback)
-            print("⚠️ No suitable font found for checkbox symbol, drawing manually")
+            # Second method: manually draw checkmark (fallback)
             self._draw_manual_checkmark(draw, x, y, w, h)
             
         except Exception as e:
-            print(f"⚠️ Error drawing checkbox checkmark: {e}")
-            # الطريقة الثالثة: رسم بدائي بسيط
+            # Third method: simple primitive drawing
             self._draw_simple_checkmark(draw, x, y, w, h)
 
     def _draw_manual_checkmark(self, draw, x, y, w, h):
         """
-        رسم علامة صح يدوياً باستخدام خطوط
+        Manually draw checkmark using lines
         """
         try:
-            # تحديد سماكة الخط بناءً على حجم المربع
+            # Determine line width based on box size
             line_width = max(2, int(min(w, h) * 0.1))
             
             # حساب نقاط علامة الصح
             center_x = x + w / 2
             center_y = y + h / 2
             
-            # تحديد نقاط الصح: خط أول من اليسار للوسط، خط ثاني من الوسط لليمين
+            # Determine checkmark points: first line from left to middle, second line from middle to right
             # نقطة البداية (يسار)
             start_x = x + w * 0.2
             start_y = center_y
@@ -411,32 +400,29 @@ class ImageService:
             mid_x = x + w * 0.4
             mid_y = y + h * 0.7
             
-            # نقطة النهاية (يمين أعلى)
+            # End point (top right)
             end_x = x + w * 0.8
             end_y = y + h * 0.3
             
-            # رسم الخط الأول (من اليسار للوسط)
+            # Draw first line (from left to middle)
             draw.line([(start_x, start_y), (mid_x, mid_y)], fill="black", width=line_width)
             
-            # رسم الخط الثاني (من الوسط لليمين)
+            # Draw second line (from middle to right)
             draw.line([(mid_x, mid_y), (end_x, end_y)], fill="black", width=line_width)
             
-            print("✅ Drew manual checkmark successfully")
-            
         except Exception as e:
-            print(f"⚠️ Error in manual checkmark: {e}")
             self._draw_simple_checkmark(draw, x, y, w, h)
 
     def _draw_simple_checkmark(self, draw, x, y, w, h):
         """
-        رسم علامة صح بسيطة جداً (الطريقة الأخيرة)
+        Draw very simple checkmark (final method)
         """
         try:
-            # رسم X بسيط كبديل
+            # Draw simple X as alternative
             line_width = max(1, int(min(w, h) * 0.08))
             margin = int(min(w, h) * 0.2)
             
-            # رسم خطين متقاطعين يشكلان X
+            # Draw two intersecting lines forming X
             draw.line(
                 [(x + margin, y + margin), (x + w - margin, y + h - margin)], 
                 fill="black", width=line_width
@@ -446,17 +432,13 @@ class ImageService:
                 fill="black", width=line_width
             )
             
-            print("✅ Drew simple X checkmark as fallback")
-            
         except Exception as e:
-            print(f"❌ Failed to draw even simple checkmark: {e}")
-            # في النهاية، ارسم مربع مليء
+            # Finally, draw filled rectangle
             try:
                 margin = int(min(w, h) * 0.3)
                 draw.rectangle(
                     [x + margin, y + margin, x + w - margin, y + h - margin], 
                     fill="black"
                 )
-                print("✅ Drew filled rectangle as final fallback")
             except:
                 pass

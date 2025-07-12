@@ -18,7 +18,7 @@ class GeminiService:
         self.model = genai.GenerativeModel(settings.gemini_model)
 
     def remove_markdown_formatting(self, text: str) -> str:
-        """إزالة تنسيقات Markdown من النص"""
+        """Remove Markdown formatting from text"""
         if not text:
             return text
         
@@ -46,7 +46,7 @@ class GeminiService:
         text = re.sub(r'(?<!^)(?<!\s)\*([^*\n]+?)\*(?!\s*\n)', r'\1', text, flags=re.MULTILINE)
         text = re.sub(r'(?<!^)(?<!\s)_([^_\n]+?)_(?!\s*\n)', r'\1', text, flags=re.MULTILINE)
         
-        # تحويل علامات النجوم في بداية الأسطر إلى علامات تعداد عادية
+        # Convert star marks at line beginnings to normal bullet points
         text = re.sub(r'^\s*\*\s+', '• ', text, flags=re.MULTILINE)
         
         # تنظيف المسافات الزائدة
@@ -123,29 +123,23 @@ Keep message concise and helpful. Don't be overly strict on minor imperfections.
                 if hasattr(response, 'candidates') and response.candidates:
                     candidate = response.candidates[0]
                     finish_reason = candidate.finish_reason.name if hasattr(candidate.finish_reason, 'name') else str(candidate.finish_reason)
-                    print(f"[Gemini][detect_language_and_quality] finish_reason: {finish_reason}")
                     
                     # Check if response was blocked
                     if finish_reason in ["SAFETY", "RECITATION", "OTHER"] or finish_reason in ["1", "2", "3"]:
-                        print(f"[Gemini][detect_language_and_quality] Response blocked due to: {finish_reason}")
                         return 'ltr', True, "Unable to analyze image - defaulting to English"
                         
                     # Check if not STOP (4)
                     if finish_reason not in ["STOP", "4"]:
-                        print(f"[Gemini][detect_language_and_quality] Unexpected finish_reason: {finish_reason}")
                         return 'ltr', True, "Analysis incomplete - defaulting to English"
                 else:
-                    print("[Gemini][detect_language_and_quality] No candidates in response.")
                     return 'ltr', True, "No response received - defaulting to English"
                     
                 # Try to get text safely
                 response_text = getattr(response, 'text', None)
                 if not response_text:
-                    print("[Gemini][detect_language_and_quality] No text in response.")
                     return 'ltr', True, "Empty response - defaulting to English"
                     
             except Exception as e:
-                print(f"[Gemini][detect_language_and_quality] Exception accessing response: {e}")
                 return 'ltr', True, "Error analyzing image"
             
             if not response.candidates or response.candidates[0].finish_reason.name not in ["STOP"] and str(response.candidates[0].finish_reason) not in ["4"]:
@@ -162,8 +156,6 @@ Keep message concise and helpful. Don't be overly strict on minor imperfections.
                 
                 return language_direction, quality_good, quality_message
             except json.JSONDecodeError as e:
-                print(f"[Gemini][detect_language_and_quality] JSON decode error: {e}")
-                print(f"[Gemini][detect_language_and_quality] Response text: {response_text}")
                 return 'ltr', True, "Error analyzing image"
             
         except (json.JSONDecodeError, Exception) as e:
@@ -191,12 +183,12 @@ Keep message concise and helpful. Don't be overly strict on minor imperfections.
     - الفئات العامة للمعلومات التي سيحتاج المستخدم إلى تقديمها (مثال: "...سيُطلب منك تقديم تفاصيل شخصية ومعلومات الاتصال وبياناتك الأكاديمية.").
     - الهدف هو إعطاء المستخدم إحساسًا جيدًا بسياق النموذج دون قراءة كل كلمة فيه.
 
-2.  **تحديد الحقول القابلة للتعبئة:** لكل مربع مرقم (1، 2، 3، إلخ) يمثل مكانًا للكتابة للمستخدم:
+2.  **Identify fillable fields:** For each numbered box (1، 2، 3، إلخ) represents a place for user input:
     - ابحث عن التسمية النصية أو الوصف المقابل بالقرب منه.
     - **حدد ما إذا كان المربع صالحًا بناءً على السياق:** قم بتحليل التسمية والنص المحيط لفهم الغرض من الحقل.
-        - يعتبر الحقل **غير صالح** إذا كان النص يشير إلى أنه "للاستخدام الرسمي فقط"، أو مثال، أو مجرد تعليمة، أو إذا كان يحتوي بالفعل على قيمة محددة.
-        - يعتبر الحقل **صالحًا** إذا كان غرضه هو الحصول على معلومات من المستخدم بوضوح (مثل: "الاسم"، "العنوان"، "التوقيع").
-        - **مربعات الاختيار:** تكون مربعات الاختيار **صالحة** دائمًا تقريبًا. اجعلها غير صالحة فقط إذا لم تكن عنصرًا تفاعليًا بشكل واضح.
+        - Field is considered **invalid** إذا كان النص يشير إلى أنه "for official use only"، or example, or just instruction، or if it already contains specific value.
+        - Field is considered **صالحًا** إذا كان غرضه هو الحصول على معلومات من المستخدم بوضوح (مثل: "الاسم"، "العنوان"، "التوقيع").
+        - **مربعات الاختيار:** تكون مربعات الاختيار **صالحة** دائمًا تقريبًا. اجعلها invalidة فقط إذا لم تكن عنصرًا تفاعليًا بشكل واضح.
     - احتفظ بنص التسمية كما هو مكتوب في النموذج تمامًا، دون ترجمة.
 
 3.  **تنسيق الإخراج:** يجب أن يكون الإخراج كائن JSON واحد فقط، بدون أي نص قبله أو بعده.
@@ -240,8 +232,6 @@ Keep message concise and helpful. Don't be overly strict on minor imperfections.
     ```"""
 
             image_part = {"mime_type": "image/png", "data": img_str}
-            print("[Gemini][get_form_details] Sending prompt:")
-            print(prompt)
             
             # Add safety settings to reduce blocking
             safety_settings = [
@@ -264,25 +254,20 @@ Keep message concise and helpful. Don't be overly strict on minor imperfections.
                 stream=False
             )
             # --- Robust handling for missing/invalid response ---
-            print("[Gemini][get_form_details] Raw response:")
             try:
-                # Print finish_reason and candidate info for debugging
+                # Handle finish_reason and candidate info
                 if hasattr(response, 'candidates') and response.candidates:
                     candidate = response.candidates[0]
                     finish_reason = candidate.finish_reason.name if hasattr(candidate.finish_reason, 'name') else str(candidate.finish_reason)
-                    print(f"[Gemini][get_form_details] finish_reason: {finish_reason}")
                     
                     # Check if response was blocked for safety reasons
                     # finish_reason 1 = SAFETY, 2 = RECITATION, 3 = OTHER
                     if finish_reason in ["SAFETY", "RECITATION", "OTHER"] or finish_reason in ["1", "2", "3"]:
-                        print(f"[Gemini][get_form_details] Response blocked due to: {finish_reason}")
-                        print("[Gemini][get_form_details] This might be due to Arabic text being flagged incorrectly or content policies.")
                         
-                        # Print safety ratings for debugging
+                        # Handle safety ratings
                         if hasattr(candidate, 'safety_ratings') and candidate.safety_ratings:
-                            print("[Gemini][get_form_details] Safety ratings:")
                             for rating in candidate.safety_ratings:
-                                print(f"  {rating}")
+                                pass
                         
                         # Return a more user-friendly error
                         explanation = "عذراً، لم نتمكن من تحليل النموذج بسبب قيود الأمان. يرجى المحاولة مرة أخرى أو التأكد من وضوح الصورة." if language == 'rtl' else "Sorry, we couldn't analyze the form due to safety restrictions. Please try again or ensure the image is clear."
@@ -290,33 +275,25 @@ Keep message concise and helpful. Don't be overly strict on minor imperfections.
                         
                     # Check if not STOP (4)
                     if finish_reason not in ["STOP", "4"]:
-                        print(f"[Gemini][get_form_details] Unexpected finish_reason: {finish_reason}")
                         explanation = "حدث خطأ في التحليل. يرجى المحاولة مرة أخرى." if language == 'rtl' else "An error occurred during analysis. Please try again."
                         return explanation, []
                 else:
-                    print("[Gemini][get_form_details] No candidates in response.")
                     explanation = "لم نتمكن من تحليل النموذج. يرجى المحاولة مرة أخرى." if language == 'rtl' else "Unable to analyze the form. Please try again."
                     return explanation, []
                     
                 # Try to get text safely
                 response_text = getattr(response, 'text', None)
                 if not response_text:
-                    print("[Gemini][get_form_details] No text in response.")
                     explanation = "لم نتمكن من الحصول على نتيجة التحليل. يرجى المحاولة مرة أخرى." if language == 'rtl' else "Could not get analysis result. Please try again."
                     return explanation, []
                     
-                print(f"[Gemini][get_form_details] Response text: {response_text}")
                 
                 # Clean and parse the response
                 response_text = response_text.strip().replace("```json", "").replace("```", "").strip()
-                print("[Gemini][get_form_details] Cleaned response text:")
-                print(response_text)
                 
                 try:
                     parsed_json = json.loads(response_text)
                 except Exception as e:
-                    print(f"[Gemini][get_form_details] JSON decode error: {e}")
-                    print(f"[Gemini][get_form_details] Response text that failed: {response_text}")
                     explanation = "خطأ في تحليل البيانات المستلمة. يرجى المحاولة مرة أخرى." if language == 'rtl' else "Error parsing received data. Please try again."
                     return explanation, []
                     
@@ -326,16 +303,13 @@ Keep message concise and helpful. Don't be overly strict on minor imperfections.
                 if isinstance(fields, list) and explanation:
                     return explanation, fields
                     
-                print("[Gemini][get_form_details] Fields or explanation missing or invalid.")
                 explanation = "البيانات المستلمة غير مكتملة. يرجى المحاولة مرة أخرى." if language == 'rtl' else "Received data is incomplete. Please try again."
                 return explanation, []
                 
             except Exception as e:
-                print(f"[Gemini][get_form_details] Exception while accessing response.text: {e}")
                 explanation = "حدث خطأ تقني. يرجى المحاولة مرة أخرى." if language == 'rtl' else "A technical error occurred. Please try again."
                 return explanation, []
         except Exception as e:
-            print(f"[Gemini][get_form_details] Exception: {e}")
             import traceback
             traceback.print_exc()
             explanation = "حدث خطأ تقني غير متوقع. يرجى المحاولة مرة أخرى." if language == 'rtl' else "An unexpected technical error occurred. Please try again."
@@ -354,14 +328,14 @@ Keep message concise and helpful. Don't be overly strict on minor imperfections.
             # --- Language-Specific Prompts (fields only) ---
             if language == 'rtl':
                 prompt = f"""
-أنت مساعد ذكي متخصص في تحليل النماذج. هدفك هو تحديد الحقول القابلة للتعبئة فقط.
+أنت مساعد ذكي متخصص في تحليل النماذج. هدفك هو Identify fillable fields فقط.
 
-**تحديد الحقول القابلة للتعبئة:** لكل مربع مرقم (1، 2، 3، إلخ) يمثل مكانًا للكتابة للمستخدم:
+**Identify fillable fields:** For each numbered box (1، 2، 3، إلخ) represents a place for user input:
 - ابحث عن التسمية النصية أو الوصف المقابل بالقرب منه.
 - **حدد ما إذا كان المربع صالحًا بناءً على السياق:** قم بتحليل التسمية والنص المحيط لفهم الغرض من الحقل.
-    - يعتبر الحقل **غير صالح** إذا كان النص يشير إلى أنه "للاستخدام الرسمي فقط"، أو مثال، أو مجرد تعليمة، أو إذا كان يحتوي بالفعل على قيمة محددة.
-    - يعتبر الحقل **صالحًا** إذا كان غرضه هو الحصول على معلومات من المستخدم بوضوح (مثل: "الاسم"، "العنوان"، "التوقيع").
-    - **مربعات الاختيار:** تكون مربعات الاختيار **صالحة** دائمًا تقريبًا. اجعلها غير صالحة فقط إذا لم تكن عنصرًا تفاعليًا بشكل واضح.
+    - Field is considered **invalid** إذا كان النص يشير إلى أنه "for official use only"، or example, or just instruction، or if it already contains specific value.
+    - Field is considered **صالحًا** إذا كان غرضه هو الحصول على معلومات من المستخدم بوضوح (مثل: "الاسم"، "العنوان"، "التوقيع").
+    - **مربعات الاختيار:** تكون مربعات الاختيار **صالحة** دائمًا تقريبًا. اجعلها invalidة فقط إذا لم تكن عنصرًا تفاعليًا بشكل واضح.
 - احتفظ بنص التسمية كما هو مكتوب في النموذج تمامًا، دون ترجمة.
 
 **تنسيق الإخراج:** يجب أن يكون الإخراج قائمة JSON فقط، بدون أي نص قبله أو بعده.
@@ -393,8 +367,6 @@ Keep message concise and helpful. Don't be overly strict on minor imperfections.
 ```"""
 
             image_part = {"mime_type": "image/png", "data": img_str}
-            print("[Gemini][get_form_fields_only] Sending prompt:")
-            print(prompt)
             
             # Add safety settings to reduce blocking
             safety_settings = [
@@ -416,65 +388,50 @@ Keep message concise and helpful. Don't be overly strict on minor imperfections.
                 safety_settings=safety_settings,
                 stream=False
             )
-            print("[Gemini][get_form_fields_only] Raw response:")
             try:
                 if hasattr(response, 'candidates') and response.candidates:
                     candidate = response.candidates[0]
                     finish_reason = candidate.finish_reason.name if hasattr(candidate.finish_reason, 'name') else str(candidate.finish_reason)
-                    print(f"[Gemini][get_form_fields_only] finish_reason: {finish_reason}")
                     
                     # Check if response was blocked for safety reasons
                     # finish_reason 1 = SAFETY, 2 = RECITATION, 3 = OTHER
                     if finish_reason in ["SAFETY", "RECITATION", "OTHER"] or finish_reason in ["1", "2", "3"]:
-                        print(f"[Gemini][get_form_fields_only] Response blocked due to: {finish_reason}")
-                        print("[Gemini][get_form_fields_only] This might be due to Arabic text being flagged incorrectly or content policies.")
                         
-                        # Print safety ratings for debugging
+                        # Handle safety ratings
                         if hasattr(candidate, 'safety_ratings') and candidate.safety_ratings:
-                            print("[Gemini][get_form_fields_only] Safety ratings:")
                             for rating in candidate.safety_ratings:
-                                print(f"  {rating}")
+                                pass
+                        
                         return []
                         
                     # Check if not STOP (4)
                     if finish_reason not in ["STOP", "4"]:
-                        print(f"[Gemini][get_form_fields_only] Unexpected finish_reason: {finish_reason}")
                         return []
                 else:
-                    print("[Gemini][get_form_fields_only] No candidates in response.")
                     return []
                     
                 # Try to get text safely
                 response_text = getattr(response, 'text', None)
                 if not response_text:
-                    print("[Gemini][get_form_fields_only] No text in response.")
                     return []
                     
-                print(f"[Gemini][get_form_fields_only] Response text: {response_text}")
                 
                 # Clean and parse the response
                 response_text = response_text.strip().replace("```json", "").replace("```", "").strip()
-                print("[Gemini][get_form_fields_only] Cleaned response text:")
-                print(response_text)
                 
                 try:
                     fields = json.loads(response_text)
                 except Exception as e:
-                    print(f"[Gemini][get_form_fields_only] JSON decode error: {e}")
-                    print(f"[Gemini][get_form_fields_only] Response text that failed: {response_text}")
                     return []
                     
                 if isinstance(fields, list):
                     return fields
                     
-                print("[Gemini][get_form_fields_only] Fields not a list.")
                 return []
                 
             except Exception as e:
-                print(f"[Gemini][get_form_fields_only] Exception while accessing response.text: {e}")
                 return []
         except Exception as e:
-            print(f"[Gemini][get_form_fields_only] Exception: {e}")
             import traceback
             traceback.print_exc()
             return []
@@ -485,7 +442,7 @@ Keep message concise and helpful. Don't be overly strict on minor imperfections.
 
     def analyze_currency_image(self, image: Image.Image):
         """
-        تحليل صورة العملة باستخدام Gemini API
+        Analyze currency image using Gemini API
         """
         try:
             # النص التوجيهي المختصر
@@ -524,12 +481,10 @@ Keep message concise and helpful. Don't be overly strict on minor imperfections.
                     
                     # Check if response was blocked
                     if finish_reason in ["SAFETY", "RECITATION", "OTHER"] or finish_reason in ["1", "2", "3"]:
-                        print(f"[Gemini][analyze_currency_image] Response blocked due to: {finish_reason}")
                         return "عذراً، لم نتمكن من تحليل العملة بسبب قيود النظام. حاول مرة أخرى."
                         
                     # Check if not STOP (4)
                     if finish_reason not in ["STOP", "4"]:
-                        print(f"[Gemini][analyze_currency_image] Unexpected finish_reason: {finish_reason}")
                         return "فشل في تحليل العملة. حاول مرة أخرى."
                 else:
                     return "لم نتمكن من تحليل العملة. حاول مرة أخرى."
@@ -544,11 +499,9 @@ Keep message concise and helpful. Don't be overly strict on minor imperfections.
                 return clean_response
                 
             except Exception as e:
-                print(f"[Gemini][analyze_currency_image] Exception accessing response: {e}")
                 return "خطأ في الحصول على النتيجة. حاول مرة أخرى."
 
         except Exception as e:
-            print(f"[Gemini][analyze_currency_image] Exception: {e}")
             return f"خطأ: {str(e)}"
 
     def get_quick_form_explanation(self, image: Image.Image, language: str) -> str:
@@ -615,13 +568,11 @@ Respond directly and helpfully in 2-4 sentences only. Do not use markdown format
                     
                     # Check if response was blocked
                     if finish_reason in ["SAFETY", "RECITATION", "OTHER"] or finish_reason in ["1", "2", "3"]:
-                        print(f"[Gemini][get_quick_form_explanation] Response blocked due to: {finish_reason}")
                         fallback_msg = "عذراً، لم نتمكن من تحليل النموذج بسبب قيود النظام." if language == 'rtl' else "Sorry, unable to analyze the form due to system restrictions."
                         return fallback_msg
                         
                     # Check if not STOP (4) or MAX_TOKENS (3)
                     if finish_reason not in ["STOP", "4", "MAX_TOKENS", "3"]:
-                        print(f"[Gemini][get_quick_form_explanation] Unexpected finish_reason: {finish_reason}")
                         fallback_msg = "فشل في تحليل النموذج." if language == 'rtl' else "Failed to analyze the form."
                         return fallback_msg
                 else:
@@ -639,7 +590,6 @@ Respond directly and helpfully in 2-4 sentences only. Do not use markdown format
                 return explanation
                 
             except Exception as e:
-                print(f"[Gemini][get_quick_form_explanation] Exception accessing response: {e}")
                 fallback_msg = "خطأ في الحصول على النتيجة." if language == 'rtl' else "Error getting result."
                 return fallback_msg
             
@@ -661,7 +611,7 @@ Respond directly and helpfully in 2-4 sentences only. Do not use markdown format
 
     def analyze_document_bulk(self, document_data: Dict[str, Any], language: str = "arabic") -> Dict[str, Any]:
         """
-        تحليل المستند بالكامل باستخدام Gemini AI
+        Analyze complete document using Gemini AI
         """
         try:
             if not self.model:
@@ -703,12 +653,10 @@ Respond directly and helpfully in 2-4 sentences only. Do not use markdown format
                     
                     # Check if response was blocked
                     if finish_reason in ["SAFETY", "RECITATION", "OTHER"] or finish_reason in ["1", "2", "3"]:
-                        print(f"[Gemini][analyze_document_bulk] Response blocked due to: {finish_reason}")
                         return self._create_fallback_analysis(document_data, language)
                         
                     # Check if not STOP (4)
                     if finish_reason not in ["STOP", "4"]:
-                        print(f"[Gemini][analyze_document_bulk] Unexpected finish_reason: {finish_reason}")
                         return self._create_fallback_analysis(document_data, language)
                 else:
                     return self._create_fallback_analysis(document_data, language)
@@ -722,7 +670,6 @@ Respond directly and helpfully in 2-4 sentences only. Do not use markdown format
                 return analysis_result
                 
             except Exception as e:
-                print(f"[Gemini][analyze_document_bulk] Exception accessing response: {e}")
                 return self._create_fallback_analysis(document_data, language)
 
         except Exception as e:
@@ -735,7 +682,7 @@ Respond directly and helpfully in 2-4 sentences only. Do not use markdown format
             # تنظيف الأمر
             command = command.strip().lower()
             
-            # البحث عن الأرقام في الأمر
+            # Search for numbers in command
             page_number = self._simple_page_extraction(command, current_page, total_pages)
             
             if page_number is not None:
@@ -847,7 +794,6 @@ Respond directly and helpfully in 2-4 sentences only. Do not use markdown format
                 return clean_response
                 
             except Exception as e:
-                print(f"[Gemini][analyze_page_image] Exception accessing response: {e}")
                 fallback_msg = "خطأ في الحصول على النتيجة." if language == "arabic" else "Error getting result."
                 return fallback_msg
             
@@ -936,7 +882,6 @@ Analyze the image and answer the question in detail and helpfully in English.
                 return clean_response
                 
             except Exception as e:
-                print(f"[Gemini][analyze_page_with_question] Exception accessing response: {e}")
                 fallback_msg = "خطأ في الحصول على النتيجة." if language == "arabic" else "Error getting result."
                 return fallback_msg
             
@@ -1256,7 +1201,6 @@ Don't be overly strict on minor imperfections.
                     return True, fallback_msg
                     
             except Exception as e:
-                print(f"[Gemini][check_image_quality_with_language] Exception accessing response: {e}")
                 fallback_msg = "تم فحص الصورة" if language_direction == 'rtl' else "Image checked"
                 return True, fallback_msg
             
@@ -1349,29 +1293,23 @@ Don't be overly strict on minor imperfections.
                 if hasattr(response, 'candidates') and response.candidates:
                     candidate = response.candidates[0]
                     finish_reason = candidate.finish_reason.name if hasattr(candidate.finish_reason, 'name') else str(candidate.finish_reason)
-                    print(f"[Gemini][check_currency_image_quality] finish_reason: {finish_reason}")
                     
                     # Check if response was blocked
                     if finish_reason in ["SAFETY", "RECITATION", "OTHER"] or finish_reason in ["1", "2", "3"]:
-                        print(f"[Gemini][check_currency_image_quality] Response blocked due to: {finish_reason}")
                         return True, "تم فحص الصورة - قد تحتاج لتحسين الإضاءة"
                         
                     # Check if not STOP (4)
                     if finish_reason not in ["STOP", "4"]:
-                        print(f"[Gemini][check_currency_image_quality] Unexpected finish_reason: {finish_reason}")
                         return True, "تم فحص الصورة"
                 else:
-                    print("[Gemini][check_currency_image_quality] No candidates in response.")
                     return True, "تم فحص الصورة"
                     
                 # Try to get text safely
                 response_text = getattr(response, 'text', None)
                 if not response_text:
-                    print("[Gemini][check_currency_image_quality] No text in response.")
                     return True, "تم فحص الصورة"
                     
             except Exception as e:
-                print(f"[Gemini][check_currency_image_quality] Exception accessing response: {e}")
                 return True, "تم فحص الصورة"
             
             if not response.candidates or response.candidates[0].finish_reason.name not in ["STOP"] and str(response.candidates[0].finish_reason) not in ["4"]:

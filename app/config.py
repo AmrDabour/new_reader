@@ -3,19 +3,19 @@ from functools import lru_cache
 import os
 
 def get_default_base_url() -> str:
-    """تحديد عنوان URL الافتراضي بناءً على بيئة التشغيل"""
-    # التحقق من وجود متغيرات بيئة GitHub CodeSpaces
+    """Determine default URL based on runtime environment"""
+    # Check for GitHub CodeSpaces environment variables
     if os.getenv("CODESPACES") == "true":
         codespace_name = os.getenv("CODESPACE_NAME", "")
         if codespace_name:
             return f"https://{codespace_name}-{os.getenv('PORT', '10000')}.app.github.dev"
     
-    # القيمة الافتراضية للتطوير المحلي
+    # Default value for local development
     return "http://localhost:10000"
 
 class Settings(BaseSettings):
     # Base URL for the application
-    base_url: str = None  # سيتم تحديده لاحقاً
+    base_url: str = None  # Will be set later
 
     # Google AI Settings - will be loaded from GOOGLE_AI_API_KEY env var
     google_ai_api_key: str
@@ -51,7 +51,7 @@ class Settings(BaseSettings):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        # تعيين base_url إذا لم يتم تحديده
+        # Set base_url if not specified
         if not self.base_url:
             self.base_url = get_default_base_url()
 

@@ -15,39 +15,39 @@ except ImportError:
     logger.warning("PyMuPDF not available. PDF support disabled.")
 
 class PDFProcessor:
-    """معالج PDF خاص لنماذج التحليل"""
+    """PDF processor for form analysis"""
     
     def __init__(self):
-        self.max_pages = 50  # الحد الأقصى لعدد الصفحات للمعالجة
-        self.dpi = 300  # جودة التحويل للصور
+        self.max_pages = 50  # Maximum number of pages for processing
+        self.dpi = 300  # Image conversion quality
     
     def is_pdf_supported(self) -> bool:
-        """التحقق من دعم معالجة PDF"""
+        """Check if PDF processing is supported"""
         return PDF_AVAILABLE
     
     def convert_pdf_to_images(self, file_content: bytes) -> List[Dict[str, Any]]:
         """
-        تحويل PDF إلى مجموعة من الصور مع معلومات كل صفحة
+        Convert PDF to a collection of images with page information
         
         Returns:
-            List[Dict]: قائمة بمعلومات كل صفحة تحتوي على:
-                - page_number: رقم الصفحة
+            List[Dict]: List of page information containing:
+                - page_number: Page number
                 - image: PIL Image object
-                - image_base64: الصورة مُرمزة بـ base64
-                - width: عرض الصورة
-                - height: ارتفاع الصورة
+                - image_base64: Base64 encoded image
+                - width: Image width
+                - height: Image height
         """
         if not PDF_AVAILABLE:
             raise ImportError("PyMuPDF library is required for PDF processing")
         
         try:
-            # فتح PDF من البايتات
+            # Open PDF from bytes
             file_stream = io.BytesIO(file_content)
             pdf_document = fitz.open(stream=file_stream, filetype="pdf")
             
             total_pages = len(pdf_document)
             
-            # التحقق من عدد الصفحات
+            # Check page count
             if total_pages > self.max_pages:
                 pdf_document.close()
                 raise ValueError(f"PDF has too many pages ({total_pages}). Maximum allowed: {self.max_pages}")
@@ -58,18 +58,18 @@ class PDFProcessor:
                 try:
                     page = pdf_document[page_num]
                     
-                    # تحويل الصفحة إلى صورة عالية الجودة
-                    mat = fitz.Matrix(self.dpi / 72, self.dpi / 72)  # تحويل DPI إلى معامل التكبير
+                    # Convert page to high quality image
+                    mat = fitz.Matrix(self.dpi / 72, self.dpi / 72)  # Convert DPI to zoom factor
                     pix = page.get_pixmap(matrix=mat)
                     
-                    # تحويل إلى PIL Image
+                    # Convert to PIL Image
                     img_data = pix.tobytes("ppm")
                     pil_image = Image.open(io.BytesIO(img_data))
                     
                     if pil_image.mode != "RGB":
                         pil_image = pil_image.convert("RGB")
                     
-                    # تحويل إلى base64
+                    # Convert to base64
                     image_base64 = self._image_to_base64(pil_image)
                     
                     page_data = {
@@ -84,8 +84,8 @@ class PDFProcessor:
                     
                 except Exception as e:
                     logger.error(f"Error processing page {page_num + 1}: {str(e)}")
-                    # إنشاء صفحة احتياطية في حالة الخطأ
-                    fallback_image = Image.new("RGB", (2100, 2970), "white")  # حجم A4 بدقة 300 DPI
+                    # Create fallback page in case of error
+                    fallback_image = Image.new("RGB", (2100, 2970), "white")  # A4 size at 300 DPI
                     fallback_base64 = self._image_to_base64(fallback_image)
                     
                     pages_data.append({
@@ -141,14 +141,14 @@ class PDFProcessor:
     
     def extract_page_text(self, file_content: bytes, page_number: int) -> str:
         """
-        استخراج النص من صفحة محددة في PDF
+        Extract text from specific page in PDF
         
         Args:
             file_content: محتوى ملف PDF
             page_number: رقم الصفحة (يبدأ من 1)
         
         Returns:
-            str: النص المستخرج من الصفحة
+            str: Text extracted from page
         """
         if not PDF_AVAILABLE:
             raise ImportError("PyMuPDF library is required for PDF processing")
@@ -161,7 +161,7 @@ class PDFProcessor:
                 pdf_document.close()
                 raise ValueError(f"Invalid page number: {page_number}")
             
-            page = pdf_document[page_number - 1]  # تحويل إلى zero-based index
+            page = pdf_document[page_number - 1]  # Convert to zero-based index
             text = page.get_text()
             
             pdf_document.close()
@@ -173,14 +173,14 @@ class PDFProcessor:
     
     def split_pdf_by_language(self, pages_data: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
         """
-        تصنيف صفحات PDF حسب اتجاه اللغة (RTL/LTR)
-        هذه الدالة يمكن توسيعها لاحقاً لاستخدام AI في تحديد اللغة
+        Categorize PDF pages by language direction (RTL/LTR)
+        This function can be expanded later to use AI for language detection
         
         Args:
-            pages_data: قائمة صفحات PDF المحولة إلى صور
+            pages_data: List of PDF pages converted to images
             
         Returns:
-            Dict: صفحات مُصنفة حسب اتجاه اللغة
+            Dict: Pages categorized by language direction
         """
         categorized = {
             "rtl": [],
@@ -189,23 +189,23 @@ class PDFProcessor:
         }
         
         # حالياً نضع جميع الصفحات تحت RTL كافتراضي
-        # يمكن تحسين هذا لاحقاً باستخدام AI لتحليل النص
+        # Can be improved later using AI for text analysis
         for page_data in pages_data:
             categorized["rtl"].append(page_data)
         
         return categorized
     
     def _image_to_base64(self, image: Image.Image) -> str:
-        """تحويل صورة PIL إلى base64"""
+        """Convert PIL image to base64"""
         try:
-            # تقليل حجم الصورة إذا كانت كبيرة جداً
+            # Reduce image size if too large
             max_size = 2100  # الحد الأقصى للعرض أو الارتفاع
             if image.width > max_size or image.height > max_size:
                 image.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
             
-            # تحويل إلى base64
+            # Convert to base64
             buffer = io.BytesIO()
-            # استخدام جودة عالية للنماذج
+            # Use high quality for forms
             image.save(buffer, format="PNG", optimize=True, quality=95)
             img_bytes = buffer.getvalue()
             
@@ -217,7 +217,7 @@ class PDFProcessor:
     
     def validate_pdf_for_forms(self, file_content: bytes) -> Tuple[bool, str]:
         """
-        التحقق من صلاحية PDF لتحليل النماذج
+        Validate PDF for form analysis
         
         Returns:
             Tuple[bool, str]: (is_valid, message)
@@ -226,20 +226,20 @@ class PDFProcessor:
             info = self.get_pdf_info(file_content)
             
             if "error" in info:
-                return False, f"خطأ في قراءة PDF: {info['error']}"
+                return False, f"Error reading PDF: {info['error']}"
             
             total_pages = info.get("total_pages", 0)
             
             if total_pages == 0:
-                return False, "PDF فارغ أو تالف"
+                return False, "PDF is empty or corrupted"
             
             if total_pages > self.max_pages:
-                return False, f"PDF يحتوي على صفحات كثيرة ({total_pages}). الحد الأقصى المسموح: {self.max_pages}"
+                return False, f"PDF has too many pages ({total_pages}). Maximum allowed: {self.max_pages}"
             
-            # يمكن إضافة فحوصات أخرى هنا
-            # مثل التحقق من وجود نماذج قابلة للتعبئة
+            # Additional checks can be added here
+            # such as checking for fillable forms
             
-            return True, f"PDF صالح للمعالجة ({total_pages} صفحة)"
+            return True, f"PDF is valid for processing ({total_pages} pages)"
             
         except Exception as e:
-            return False, f"خطأ في التحقق من PDF: {str(e)}"
+            return False, f"Error validating PDF: {str(e)}"

@@ -32,7 +32,7 @@ class DocumentProcessor:
 
     def process_document(self, file_content: bytes, file_extension: str) -> Dict[str, Any]:
         """
-        معالجة المستند وتحويله إلى صور مع استخراج النصوص
+        Process document and convert to images with text extraction
         """
         try:
             if file_extension.lower() == ".pdf":
@@ -43,11 +43,10 @@ class DocumentProcessor:
                 raise ValueError(f"Unsupported file format: {file_extension}")
 
         except Exception as e:
-            logger.debug(f"Document processing failed, using fallback: {str(e)}")
             return self._create_fallback_document("unknown")
 
     def _process_pdf(self, file_content: bytes) -> Dict[str, Any]:
-        """معالجة ملف PDF"""
+        """Process PDF file"""
         if not PDF_AVAILABLE:
             raise ImportError("PyMuPDF library is required for PDF processing")
 
@@ -96,11 +95,10 @@ class DocumentProcessor:
 
         except Exception as e:
             # Create fallback response instead of failing
-            logger.debug(f"PDF processing failed, using fallback: {str(e)}")
             return self._create_fallback_document("pdf")
 
     def _process_powerpoint(self, file_content: bytes) -> Dict[str, Any]:
-        """معالجة ملف PowerPoint"""
+        """Process PowerPoint file"""
         if not SPIRE_AVAILABLE:
             raise ImportError("Spire.Presentation library is required for PowerPoint processing")
 
@@ -168,11 +166,10 @@ class DocumentProcessor:
 
         except Exception as e:
             # Create fallback response instead of failing  
-            logger.debug(f"PowerPoint processing failed, using fallback: {str(e)}")
             return self._create_fallback_document("pptx")
 
     def _save_slide_as_image(self, slide, slide_index: int) -> str:
-        """حفظ الشريحة كصورة مع معالجة أخطاء الخطوط"""
+        """Save slide as image with font error handling"""
         temp_image_path = None
         try:
             # Try to save slide as image
@@ -220,7 +217,7 @@ class DocumentProcessor:
                     pass
 
     def _create_fallback_slide_image(self, slide_index: int) -> str:
-        """إنشاء صورة احتياطية للشريحة"""
+        """Create fallback image for slide"""
         try:
             # Create a simple image with slide number
             fallback_image = Image.new("RGB", (1920, 1080), "white")
@@ -235,7 +232,7 @@ class DocumentProcessor:
             return ""
 
     def _extract_slide_text(self, slide) -> str:
-        """استخراج النص من الشريحة"""
+        """Extract text from slide"""
         text_parts = []
         
         try:
@@ -294,11 +291,10 @@ class DocumentProcessor:
                             text_parts.append(text_content)
                             
                     except Exception as shape_error:
-                        logger.debug(f"Error processing shape {shape_index}: {str(shape_error)}")
                         continue
                         
             except Exception as shapes_error:
-                logger.debug(f"Error accessing shapes: {str(shapes_error)}")
+                pass
             
             # Method 3: Try Notes or other slide properties
             try:
@@ -319,7 +315,7 @@ class DocumentProcessor:
         return clean_and_format_text(combined_text)
 
     def _image_to_base64(self, image: Image.Image) -> str:
-        """تحويل صورة PIL إلى base64"""
+        """Convert PIL image to base64"""
         try:
             # Resize image if too large
             max_size = 1920
@@ -351,7 +347,7 @@ class DocumentProcessor:
         return file_extension.lower() in self.get_supported_formats()
 
     def _create_fallback_document(self, file_type: str) -> Dict[str, Any]:
-        """إنشاء مستند تجريبي في حالة فشل المعالجة"""
+        """Create dummy document in case of processing failure"""
         try:
             # Create a simple white image as fallback
             fallback_image = Image.new("RGB", (1920, 1080), "white")

@@ -218,7 +218,7 @@ async def analyze_form(file: UploadFile = File(...), session_id: str = Form(None
             corrected_image_b64 = base64.b64encode(img_buffer.getvalue()).decode('utf-8')
             session_service.update_session(session_id, 'converted_image_b64', corrected_image_b64)
         except Exception as img_save_error:
-            print(f"Warning: Could not save converted image to session: {img_save_error}")
+            pass
 
         return FormAnalysisResponse(
             fields=final_fields,
@@ -312,24 +312,16 @@ async def annotate_image_endpoint(request: AnnotateImageRequest):
     Now supports both image files and PDF files (converts first page to image).
     """
     try:
-        print(f"🔍 Received annotate request:")
-        print(f"   - texts_dict: {request.texts_dict}")
-        print(f"   - ui_fields count: {len(request.ui_fields) if request.ui_fields else 0}")
-        print(f"   - has signature: {bool(request.signature_image_b64)}")
         
         # Decode the base64 data
         image_bytes = base64.b64decode(request.original_image_b64)
-        print(f"   - Decoded {len(image_bytes)} bytes")
         
         # Try to open as image first
         try:
             original_image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-            print(f"   - Successfully opened as image: {original_image.size}")
         except Exception as img_error:
-            print(f"   - Failed to open as image: {img_error}")
             # If it fails, maybe it's PDF bytes - try to convert
             try:
-                print("   - Attempting PDF conversion...")
                 # Check if we have PDF processor available
                 if not pdf_processor.is_pdf_supported():
                     raise HTTPException(status_code=503, detail="PDF processing not available")
@@ -342,10 +334,8 @@ async def annotate_image_endpoint(request: AnnotateImageRequest):
                 # Get first page as image
                 first_page = pages_data[0]
                 original_image = first_page["image"]
-                print(f"   - Successfully converted PDF to image: {original_image.size}")
                 
             except Exception as pdf_error:
-                print(f"   - PDF conversion also failed: {pdf_error}")
                 raise HTTPException(
                     status_code=400, 
                     detail=f"Could not process file as image or PDF: {str(pdf_error)}"
@@ -363,14 +353,10 @@ async def annotate_image_endpoint(request: AnnotateImageRequest):
         final_image.save(buffered, format="PNG")
         img_bytes = buffered.getvalue()
         
-        print(f"✅ Annotation successful, returning {len(img_bytes)} bytes")
         return Response(content=img_bytes, media_type="image/png")
 
     except Exception as e:
-        print(f"❌ Error in annotate_image_endpoint: {str(e)}")
-        print(f"   - Error type: {type(e).__name__}")
         import traceback
-        print(f"   - Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"An internal error occurred: {str(e)}")
 
 @router.post("/process-pdf", response_model=PDFFormAnalysisResponse)
@@ -742,7 +728,6 @@ async def annotate_pdf_page(
         except Exception as img_error:
             # في حالة فشل الرسم، أرجع الصورة الأصلية
             final_image = original_image
-            print(f"Warning: Failed to annotate image: {img_error}")
         
         # تحويل إلى bytes وإرجاع
         buffered = io.BytesIO()
@@ -942,7 +927,6 @@ async def analyze_pdf_page(session_id: str = Form(...), page_number: int = Form(
         )
         
         if existing_analysis:
-            print(f"📋 Page {page_number} already analyzed, returning existing analysis")
             return {
                 "session_id": session_id,
                 "page_number": page_number,
@@ -1009,12 +993,10 @@ async def analyze_pdf_page(session_id: str = Form(...), page_number: int = Form(
         try:
             gpt_fields_raw = gemini_service.get_form_fields_only(gpt_image, language_direction)
         except Exception as gemini_error:
-            print(f"Warning: Gemini analysis failed for page {page_number}: {gemini_error}")
             gpt_fields_raw = None
         
         if not gpt_fields_raw:
             # الاعتماد على YOLO فقط إذا فشل Gemini
-            print(f"Warning: Using YOLO-only results for page {page_number} due to Gemini failure")
             final_fields = []
             for i, field_data in enumerate(fields_data):
                 field = {
@@ -1065,16 +1047,15 @@ async def analyze_pdf_page(session_id: str = Form(...), page_number: int = Form(
             corrected_image_b64 = base64.b64encode(img_buffer.getvalue()).decode('utf-8')
             page_analysis["corrected_image_b64"] = corrected_image_b64
         except Exception as img_save_error:
-            print(f"Warning: Could not save corrected image for page {page_number}: {img_save_error}")
+            pass
         
-        # التحقق من وجود تحليل سابق لهذه الصفحة وحذفه لتجنب التكرار
+        # Check for existing analysis of this page and remove to avoid duplication
         existing_analysis_indices = [
             i for i, p in enumerate(pdf_session["analyzed_pages"]) 
             if p["page_number"] == page_number
         ]
         for idx in reversed(existing_analysis_indices):  # حذف من الخلف للأمام لتجنب مشاكل الفهرسة
             pdf_session["analyzed_pages"].pop(idx)
-            print(f"🗑️ Removed duplicate analysis for page {page_number}")
         
         pdf_session["analyzed_pages"].append(page_analysis)
         pdf_session["current_stage"] = "analyze"
@@ -1186,14 +1167,7 @@ async def fill_pdf_page(
         except Exception as img_error:
             # في حالة فشل الرسم، أرجع الصورة الأصلية
             final_image = original_image
-            print(f"Warning: Failed to fill page {page_number}: {img_error}")
-            print(f"Error type: {type(img_error).__name__}")
-            print(f"Error details: {str(img_error)}")
-            print(f"UI Fields count: {len(ui_fields)}")
-            print(f"Validated fields count: {len(validated_fields)}")
-            print(f"Texts dict keys: {list(texts_dict_parsed.keys())}")
             import traceback
-            print(f"Full traceback: {traceback.format_exc()}")
         
         # تحويل الصورة النهائية إلى bytes و base64
         buffered = io.BytesIO()
@@ -1214,8 +1188,6 @@ async def fill_pdf_page(
         
         pdf_session["current_stage"] = "fill"
         
-        print(f"✅ Page {page_number} filled and saved successfully")
-        print(f"📊 Current filled pages: {list(pdf_session['filled_pages'].keys())}")
         
         # تحديد ما إذا كانت هناك صفحة تالية
         has_next_page = page_number < pdf_session["total_pages"]
@@ -1258,11 +1230,6 @@ async def download_filled_pdf(session_id: str):
         total_pages = pdf_session["total_pages"]
         filled_pages = pdf_session.get("filled_pages", {})
         
-        print(f"🔍 PDF Download Debug:")
-        print(f"   Session ID: {session_id}")
-        print(f"   Total pages: {total_pages}")
-        print(f"   Filled pages count: {len(filled_pages)}")
-        print(f"   Filled page numbers: {list(filled_pages.keys())}")
         
         if len(filled_pages) == 0:
             raise HTTPException(status_code=400, detail="لا توجد صفحات معبأة للتحميل")
@@ -1350,35 +1317,23 @@ async def download_filled_pdf(session_id: str):
                 return final_name
                 
             except Exception as e:
-                print(f"⚠️ Error in sanitize_filename: {e}")
                 return "filled_form.pdf"
         
         # تطبيق التنظيف على اسم الملف
         safe_filename = sanitize_filename(original_filename)
-        print(f"📝 Original filename: {original_filename}")
-        print(f"📝 Safe filename: {safe_filename}")
-        print(f"📝 Safe filename length: {len(safe_filename)}")
-        print(f"📝 Safe filename ASCII check: {all(ord(c) < 128 for c in safe_filename)}")
         
         try:
             pdf_bytes = pdf_merger.create_pdf_from_images(pages_for_pdf, safe_filename)
-            print(f"📄 PDF created successfully: {len(pdf_bytes)} bytes")
             
             # التحقق من صحة PDF
             if len(pdf_bytes) == 0:
                 raise ValueError("PDF bytes is empty")
                 
         except Exception as merge_error:
-            print(f"❌ PDF creation failed: {merge_error}")
-            print(f"📄 Pages for PDF: {len(pages_for_pdf)}")
             for i, page in enumerate(pages_for_pdf):
                 page_size = len(page.get('image_data', b'')) if page.get('image_data') else 0
-                print(f"   Page {i+1}: number={page.get('page_number', 'N/A')}, has_data={page_size} bytes")
             
             # معلومات إضافية للتشخيص
-            print(f"📋 PDF Merger available: {pdf_merger.is_available()}")
-            print(f"📝 Original filename: {original_filename}")
-            print(f"📝 Safe filename: {safe_filename}")
             
             # تحليل نوع الخطأ
             error_message = str(merge_error)
@@ -1405,7 +1360,6 @@ async def download_filled_pdf(session_id: str):
             # اختبار إضافي: التأكد من عدم وجود أحرف خاصة في الاسم
             if all(ord(c) < 128 for c in safe_filename):
                 content_disposition = f"attachment; filename={safe_filename}"
-                print(f"✅ Content-Disposition created successfully: {content_disposition}")
             else:
                 raise ValueError("Non-ASCII characters detected")
         except (UnicodeEncodeError, UnicodeDecodeError, ValueError) as encoding_error:
@@ -1413,8 +1367,6 @@ async def download_filled_pdf(session_id: str):
             timestamp = int(time.time())
             default_filename = f"filled_form_{timestamp}.pdf"
             content_disposition = f"attachment; filename={default_filename}"
-            print(f"⚠️ Used timestamped default filename due to encoding issue: {encoding_error}")
-            print(f"✅ Content-Disposition (fallback): {content_disposition}")
         
         # معالجة آمنة لاسم الملف الأصلي في headers
         try:
@@ -1456,57 +1408,20 @@ async def download_filled_pdf(session_id: str):
             else:
                 original_filename_safe = "original_file.pdf"
         except Exception as header_error:
-            print(f"⚠️ Error processing original filename for header: {header_error}")
             original_filename_safe = "original_file.pdf"
         
-        print(f"📋 Final headers:")
-        print(f"   Content-Disposition: {content_disposition}")
-        print(f"   X-Original-Filename: {original_filename_safe}")
-        print(f"   Content-Length: {len(pdf_bytes)}")
-        
-        # التحقق النهائي من صحة جميع headers قبل الإرسال
-        headers_dict = {
-            "Content-Disposition": content_disposition,
-            "Content-Length": str(len(pdf_bytes)),
-            "X-Session-ID": session_id,
-            "X-Total-Pages": str(total_pages),
-            "X-Filled-Pages": str(len(filled_pages)),
-            "X-Original-Filename": original_filename_safe
-        }
-        
-        # اختبار كل header للتأكد من صحته
-        for header_name, header_value in headers_dict.items():
-            try:
-                # التأكد أن القيمة string
-                header_value_str = str(header_value)
-                # التأكد أن القيمة ASCII
-                header_value_str.encode('ascii')
-                # التأكد أن القيمة لا تحتوي على أحرف خاصة أو مسافات في البداية/النهاية
-                if header_name in ["X-Original-Filename", "Content-Disposition"]:
-                    # إزالة أي مسافات أو أحرف خاصة
-                    header_value_str = header_value_str.strip()
-                    if not header_value_str or len(header_value_str) < 3:
-                        if header_name == "X-Original-Filename":
-                            headers_dict[header_name] = "original_file.pdf"
-                        elif header_name == "Content-Disposition":
-                            headers_dict[header_name] = "attachment; filename=filled_form.pdf"
-                    else:
-                        headers_dict[header_name] = header_value_str
-                print(f"✅ Header {header_name} validated: {headers_dict[header_name]}")
-            except Exception as header_validation_error:
-                print(f"⚠️ Header validation failed for {header_name}: {header_validation_error}")
-                # تطبيق قيم افتراضية آمنة
-                if header_name == "X-Original-Filename":
-                    headers_dict[header_name] = "original_file.pdf"
-                elif header_name == "Content-Disposition":
-                    headers_dict[header_name] = "attachment; filename=filled_form.pdf"
-                else:
-                    headers_dict[header_name] = str(header_value).encode('ascii', errors='ignore').decode('ascii')
         
         return Response(
             content=pdf_bytes,
             media_type="application/pdf",
-            headers=headers_dict
+            headers={
+                "Content-Disposition": content_disposition,
+                "Content-Length": str(len(pdf_bytes)),
+                "X-Session-ID": session_id,
+                "X-Total-Pages": str(total_pages),
+                "X-Filled-Pages": str(len(filled_pages)),
+                "X-Original-Filename": original_filename_safe
+            }
         )
         
     except HTTPException:
@@ -1549,17 +1464,12 @@ async def delete_pdf_session(session_id: str):
     حذف جلسة PDF متعددة الصفحات
     """
     try:
-        print(f"🗑️ Attempting to delete PDF session: {session_id}")
-        print(f"   Current PDF sessions: {list(pdf_sessions.keys())}")
         
         if session_id not in pdf_sessions:
-            print(f"❌ PDF session {session_id} not found")
             raise HTTPException(status_code=404, detail="جلسة PDF غير موجودة")
         
         # حذف الجلسة
         deleted_session = pdf_sessions.pop(session_id, None)
-        print(f"✅ PDF session {session_id} deleted successfully")
-        print(f"   Remaining PDF sessions: {list(pdf_sessions.keys())}")
         
         return {
             "message": f"تم حذف جلسة PDF {session_id} بنجاح",
@@ -1570,7 +1480,6 @@ async def delete_pdf_session(session_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"❌ Error deleting PDF session {session_id}: {e}")
         raise HTTPException(status_code=500, detail=f"خطأ في حذف جلسة PDF: {str(e)}")
 
 # =============================================================================

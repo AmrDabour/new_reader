@@ -21,9 +21,12 @@ RUN apt-get update && apt-get install -y \
     wget \
     curl \
     fontconfig \
+    gcc \
+    portaudio19-dev \
+    python3-dev \
     && apt-get clean
 
-# Install fonts (removed problematic ttf-mscorefonts-installer)
+# Install fonts with better Arabic support
 RUN apt-get install -y \
     fonts-dejavu-core \
     fonts-dejavu-extra \
@@ -33,6 +36,12 @@ RUN apt-get install -y \
     fonts-noto-color-emoji \
     fonts-freefont-ttf \
     fonts-liberation2 \
+    fonts-noto-sans \
+    fonts-noto-serif \
+    fonts-amiri \
+    fonts-kacst \
+    fonts-kacst-one \
+    fonts-scheherazade-ot \
     && fc-cache -fv \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
@@ -57,9 +66,5 @@ EXPOSE 10000
 ENV PYTHONPATH=/app
 ENV TESSERACT_CMD=/usr/bin/tesseract
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:10000/health || exit 1
-
 # Command to run the application
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "10000"] 
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "10000"]

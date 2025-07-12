@@ -55,7 +55,6 @@ class PDFMergerService:
                 # Get image data
                 image_data = page_data.get('image_data')
                 if not image_data:
-                    print(f"Warning: No image data for page {page_data.get('page_number', 'unknown')}")
                     continue
                     
                 if isinstance(image_data, str):
@@ -66,21 +65,18 @@ class PDFMergerService:
                     try:
                         image_bytes = base64.b64decode(image_data)
                     except Exception as decode_error:
-                        print(f"Warning: Failed to decode base64 image data for page {page_data.get('page_number', 'unknown')}: {decode_error}")
                         continue
                 else:
                     # Assume it's already bytes
                     image_bytes = image_data
                 
                 if not image_bytes:
-                    print(f"Warning: Empty image bytes for page {page_data.get('page_number', 'unknown')}")
                     continue
                 
                 # Convert bytes to PIL Image for processing
                 try:
                     image = Image.open(io.BytesIO(image_bytes))
                 except Exception as img_error:
-                    print(f"Warning: Failed to open image for page {page_data.get('page_number', 'unknown')}: {img_error}")
                     continue
                 
                 # Convert to RGB if necessary
@@ -93,7 +89,6 @@ class PDFMergerService:
                     image.save(img_buffer, format='PNG')
                     img_buffer.seek(0)
                 except Exception as save_error:
-                    print(f"Warning: Failed to save image to buffer for page {page_data.get('page_number', 'unknown')}: {save_error}")
                     continue
                 
                 # Create a new page in the PDF
@@ -112,15 +107,10 @@ class PDFMergerService:
                 # Insert the image into the page
                 try:
                     page.insert_image(page_rect, stream=img_buffer.getvalue())
-                    print(f"✅ Successfully added page {page_data.get('page_number', 'unknown')} to PDF")
                 except Exception as insert_error:
-                    print(f"Warning: Failed to insert image into PDF page {page_data.get('page_number', 'unknown')}: {insert_error}")
                     continue
                 
             except Exception as e:
-                print(f"Warning: Failed to add page {page_data.get('page_number', 'unknown')} to PDF: {e}")
-                import traceback
-                traceback.print_exc()
                 continue
         
         if doc.page_count == 0:
@@ -130,7 +120,6 @@ class PDFMergerService:
         try:
             # Save PDF to bytes
             pdf_bytes = doc.tobytes()
-            print(f"📄 PDF successfully created with {doc.page_count} pages, size: {len(pdf_bytes)} bytes")
         except Exception as save_error:
             doc.close()
             raise RuntimeError(f"Failed to save PDF to bytes: {save_error}")
@@ -190,7 +179,6 @@ class PDFMergerService:
                     page.insert_image(page_rect, stream=image_bytes)
                     
                 except Exception as e:
-                    print(f"Warning: Failed to replace page {page_num} in PDF: {e}")
                     continue
         
         # Save the updated PDF
