@@ -7,7 +7,7 @@ aiohttp
 # Image processing
 pillow
 opencv-python-headless
-numpy
+numpy<2
 
 # AI services
 google-generativeai
