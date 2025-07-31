@@ -1174,25 +1174,27 @@ Respond directly and helpfully in 2-4 sentences only. Do not use markdown format
                 )
 
             if language == "arabic":
-                prompt = f"""انت مساعد ذكي متخصص في تحليل المحتوى التعليمي والوثائق.
+                prompt = f"""أنت مساعد ذكي متخصص في الإجابة على الأسئلة بناءً على المحتوى المرئي.
                 
-سؤال المستخدم: {question}
+السؤال: {question}
 
-حلل الصورة واجب على السؤال بشكل مفصل ومفيد باللغة العربية.
-- ركز على تفاصيل السؤال المطروح
-- اعطي شرح واضح ومفصل
-- استخدم المعلومات الموجودة في الصورة
-- اجعل الإجابة تفصيلية ومفيدة للمستخدم"""
+انظر إلى الصورة وأجب على السؤال بشكل مختصر ومباشر:
+- أجب بإيجاز ووضوح (1-3 جمل فقط)
+- ركز على الإجابة المباشرة للسؤال
+- استخدم المعلومات المرئية في الصورة
+- لا تعطي تفاصيل إضافية غير مطلوبة
+- ابدأ الإجابة مباشرة بدون مقدمات"""
             else:
-                prompt = f"""You are an intelligent assistant specialized in analyzing educational content and documents.
+                prompt = f"""You are an intelligent assistant specialized in answering questions based on visual content.
 
-User's question: {question}
+Question: {question}
 
-Analyze the image and answer the question in detail and helpfully in English.
-- Focus on the details of the question asked
-- Provide clear and detailed explanation  
-- Use the information available in the image
-- Make the answer detailed and useful for the user"""
+Look at the image and answer the question concisely and directly:
+- Answer briefly and clearly (1-3 sentences only)
+- Focus on the direct answer to the question
+- Use visual information from the image
+- Don't provide unnecessary additional details
+- Start the answer directly without introductions"""
 
             # تحويل base64 إلى image part
             image_part = {"mime_type": "image/png", "data": image_base64}
@@ -1214,7 +1216,7 @@ Analyze the image and answer the question in detail and helpfully in English.
             response = self.model.generate_content(
                 [prompt, image_part],
                 generation_config=genai.GenerationConfig(
-                    temperature=0.3, candidate_count=1, max_output_tokens=2000
+                    temperature=0.3, candidate_count=1, max_output_tokens=300
                 ),
                 safety_settings=safety_settings,
             )
@@ -1327,7 +1329,6 @@ Analyze the image and answer the question in detail and helpfully in English.
 قم بتحليل العرض التقديمي وأعطني النتائج بتنسيق JSON التالي بدقة:
 
 {{
-  "presentation_summary": "ملخص شامل ومفصل للعرض التقديمي بأكمله (3-5 جمل)",
   "slides_analysis": [
     {{
       "slide_number": رقم_الشريحة,
@@ -1366,7 +1367,6 @@ Presentation Content:
 Analyze this presentation and provide results in the following JSON format exactly:
 
 {{
-  "presentation_summary": "Comprehensive and detailed summary of the entire presentation (3-5 sentences)",
   "slides_analysis": [
     {{
       "slide_number": slide_number,
@@ -1413,10 +1413,7 @@ Respond with valid JSON only, without any additional text, warnings, or disclaim
                 parsed_json = json.loads(clean_text)
 
                 # التحقق من وجود البنية المطلوبة
-                if (
-                    "presentation_summary" in parsed_json
-                    and "slides_analysis" in parsed_json
-                ):
+                if "slides_analysis" in parsed_json:
                     return parsed_json
 
             except json.JSONDecodeError:
@@ -1425,27 +1422,13 @@ Respond with valid JSON only, without any additional text, warnings, or disclaim
             # إذا فشل التحليل المباشر، استخدم التحليل التقليدي
             sections = response_text.split("\n\n")
 
-            result = {"presentation_summary": "", "slides_analysis": []}
+            result = {"slides_analysis": []}
 
             # استخراج المعلومات من النص بشكل تقليدي
             current_summary = ""
             for section in sections:
                 if section.strip():
-                    # إذا كان القسم يحتوي على ملخص
-                    if (
-                        not result["presentation_summary"]
-                        and len(section.split("\n")) <= 3
-                    ):
-                        result["presentation_summary"] = section.strip()
-                    else:
-                        current_summary += section + " "
-
-            if not result["presentation_summary"]:
-                result["presentation_summary"] = (
-                    current_summary[:500] + "..."
-                    if len(current_summary) > 500
-                    else current_summary
-                )
+                    current_summary += section + " "
 
             # إنشاء تحليل الشرائح كـ fallback
             result["slides_analysis"] = []
@@ -1493,13 +1476,7 @@ Respond with valid JSON only, without any additional text, warnings, or disclaim
                 }
                 slides_analysis.append(slide_analysis)
 
-            if language == "arabic":
-                presentation_summary = f"هذا العرض التقديمي يحتوي على {total_pages} شريحة تغطي موضوعاً شاملاً ومهماً. المحتوى منظم بطريقة تدريجية تساعد على الفهم والاستيعاب. كل شريحة تحتوي على معلومات قيمة ومترابطة مع باقي المحتوى. العرض يقدم معرفة شاملة وتطبيقية حول الموضوع المطروح."
-            else:
-                presentation_summary = f"This presentation contains {total_pages} slides covering a comprehensive and important topic. The content is organized in a progressive manner that aids understanding and comprehension. Each slide contains valuable information interconnected with the rest of the content. The presentation provides comprehensive and practical knowledge about the presented topic."
-
             return {
-                "presentation_summary": presentation_summary,
                 "slides_analysis": slides_analysis,
             }
 
@@ -1513,7 +1490,6 @@ Respond with valid JSON only, without any additional text, warnings, or disclaim
         """إنشاء تحليل احتياطي من النص المعطى"""
         if language == "arabic":
             return {
-                "presentation_summary": "تم استخراج المحتوى بنجاح ويحتوي على معلومات مفيدة ومتنوعة.",
                 "slides_analysis": [
                     {
                         "slide_number": 1,
@@ -1525,7 +1501,6 @@ Respond with valid JSON only, without any additional text, warnings, or disclaim
             }
         else:
             return {
-                "presentation_summary": "Content extracted successfully and contains useful and diverse information.",
                 "slides_analysis": [
                     {
                         "slide_number": 1,

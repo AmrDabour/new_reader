@@ -213,120 +213,6 @@ async def get_page_image(session_id: str, page_number: int):
         )
 
 
-# ==================== ADDITIONAL HELPER ENDPOINTS ====================
-
-
-@router.get("/{session_id}/page/{page_number}/image/info")
-async def get_page_image_info_endpoint(session_id: str, page_number: int):
-    """
-    الحصول على معلومات صورة الصفحة/الشريحة
-
-    Get Page Image Information Endpoint
-
-    Returns metadata about the page image without returning the actual image data.
-    Useful for checking if an image exists and getting basic information.
-
-    Args:
-        session_id (str): The document session ID
-        page_number (int): The page number to check (1-based)
-
-    Returns:
-        Dict: Information about the page image
-
-    Example Response:
-    {
-        "session_id": "doc_1",
-        "page_number": 1,
-        "has_image": true,
-        "page_title": "Slide 1",
-        "image_size_bytes": 156789,
-        "image_base64_length": 209052
-    }
-    """
-    return get_page_image_info(session_id, page_number)
-
-
-@router.get("/{session_id}/pages/images/list")
-async def list_page_images(session_id: str):
-    """
-    الحصول على قائمة بجميع صور الصفحات في المستند
-
-    List All Page Images in Document
-
-    Returns a list of all pages and their image availability status.
-
-    Args:
-        session_id (str): The document session ID
-
-    Returns:
-        Dict: List of all pages with image information
-
-    Example Response:
-    {
-        "session_id": "doc_1",
-        "total_pages": 3,
-        "pages": [
-            {
-                "page_number": 1,
-                "has_image": true,
-                "page_title": "Slide 1",
-                "image_size_bytes": 156789
-            },
-            {
-                "page_number": 2,
-                "has_image": false,
-                "page_title": "Slide 2",
-                "image_size_bytes": 0
-            }
-        ]
-    }
-    """
-    try:
-        if session_id not in document_sessions:
-            raise HTTPException(status_code=404, detail="جلسة المستند غير موجودة")
-
-        session = document_sessions[session_id]
-        total_pages = session["total_pages"]
-
-        pages_info = []
-        for page_num in range(1, total_pages + 1):
-            try:
-                page_info = get_page_image_info(session_id, page_num)
-                pages_info.append(
-                    {
-                        "page_number": page_info["page_number"],
-                        "has_image": page_info["has_image"],
-                        "page_title": page_info["page_title"],
-                        "image_size_bytes": page_info["image_size_bytes"],
-                    }
-                )
-            except Exception as e:
-                # If there's an error with a specific page, add it with error status
-                pages_info.append(
-                    {
-                        "page_number": page_num,
-                        "has_image": False,
-                        "page_title": f"Page {page_num}",
-                        "image_size_bytes": 0,
-                        "error": str(e),
-                    }
-                )
-
-        return {
-            "session_id": session_id,
-            "total_pages": total_pages,
-            "pages": pages_info,
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error listing page images: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail=f"خطأ في الحصول على قائمة الصور: {str(e)}"
-        )
-
-
 # ==================== MODULE INFORMATION ====================
 
 
@@ -343,16 +229,6 @@ def get_module_info():
                 "path": "/{session_id}/page/{page_number}/image",
                 "method": "GET",
                 "description": "Get page image as PNG",
-            },
-            {
-                "path": "/{session_id}/page/{page_number}/image/info",
-                "method": "GET",
-                "description": "Get page image metadata",
-            },
-            {
-                "path": "/{session_id}/pages/images/list",
-                "method": "GET",
-                "description": "List all page images in document",
             },
         ],
         "dependencies": ["fastapi", "base64 (built-in)", "logging (built-in)"],
