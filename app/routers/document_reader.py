@@ -8,6 +8,7 @@ from app.services.gemini import GeminiService
 from app.services.document_processor import DocumentProcessor
 from app.services.speech import SpeechService
 from app.services.json_storage import JSONStorageService
+from app.routers import page_image  # Import page image module
 from app.models.schemas import (
     AnalyzeDocumentResponse,
     SlideAnalysisResponse,
@@ -33,6 +34,9 @@ logger = logging.getLogger(__name__)
 
 # Store document sessions in memory (in production, use a database)
 document_sessions = {}
+
+# Set up shared document sessions with page_image module
+page_image.set_document_sessions(document_sessions)
 
 
 @router.post("/upload", response_model=AnalyzeDocumentResponse)
@@ -115,11 +119,11 @@ async def upload_document(
                                 if language == "arabic"
                                 else f"Failed to analyze image for page {i+1}: {str(e)}"
                             ),
-                            "processed_at": None
+                            "processed_at": None,
                         }
                         for i, page in enumerate(document_data.get("pages", []))
                     ],
-                    "status": "partial_failure"
+                    "status": "partial_failure",
                 }
 
         # Ensure slides_analysis always exists and matches total_pages
@@ -193,23 +197,35 @@ async def upload_document(
                     },
                     "text_analysis": text_analysis_result,
                     "image_analysis": image_analysis_result,
-                    "complete_analysis": []
+                    "complete_analysis": [],
                 }
 
                 # Create complete analysis combining both text and image
                 for i in range(total_pages):
                     page_data = {
                         "page_number": i + 1,
-                        "title": text_analysis_result["slides_analysis"][i].get("title", f"Page {i+1}"),
-                        "original_text": text_analysis_result["slides_analysis"][i].get("original_text", ""),
-                        "text_explanation": text_analysis_result["slides_analysis"][i].get("explanation", ""),
-                        "image_analysis": image_analysis_result["image_analyses"][i].get("image_analysis", ""),
-                        "processed_at": image_analysis_result["image_analyses"][i].get("processed_at"),
+                        "title": text_analysis_result["slides_analysis"][i].get(
+                            "title", f"Page {i+1}"
+                        ),
+                        "original_text": text_analysis_result["slides_analysis"][i].get(
+                            "original_text", ""
+                        ),
+                        "text_explanation": text_analysis_result["slides_analysis"][
+                            i
+                        ].get("explanation", ""),
+                        "image_analysis": image_analysis_result["image_analyses"][
+                            i
+                        ].get("image_analysis", ""),
+                        "processed_at": image_analysis_result["image_analyses"][i].get(
+                            "processed_at"
+                        ),
                     }
                     combined_analysis["complete_analysis"].append(page_data)
 
                 # Save to JSON file
-                json_file_path = json_storage_service.save_document_analysis(session_id, combined_analysis)
+                json_file_path = json_storage_service.save_document_analysis(
+                    session_id, combined_analysis
+                )
 
                 return AnalyzeDocumentResponse(
                     session_id=session_id,
@@ -217,7 +233,9 @@ async def upload_document(
                     file_type=file_extension,
                     total_pages=len(document_data["pages"]),
                     language=language,
-                    presentation_summary=text_analysis_result.get("presentation_summary", ""),
+                    presentation_summary=text_analysis_result.get(
+                        "presentation_summary", ""
+                    ),
                     status="success",
                     message=(
                         f"تم تحليل المستند والصور بنجاح وحفظ النتائج في: {json_file_path}"
@@ -234,7 +252,9 @@ async def upload_document(
                     file_type=file_extension,
                     total_pages=len(document_data["pages"]),
                     language=language,
-                    presentation_summary=text_analysis_result.get("presentation_summary", ""),
+                    presentation_summary=text_analysis_result.get(
+                        "presentation_summary", ""
+                    ),
                     status="success",
                     message=(
                         f"تم تحليل المستند بنجاح ولكن فشل في حفظ ملف JSON: {str(e)}"
@@ -250,7 +270,9 @@ async def upload_document(
                 file_type=file_extension,
                 total_pages=len(document_data["pages"]),
                 language=language,
-                presentation_summary=text_analysis_result.get("presentation_summary", ""),
+                presentation_summary=text_analysis_result.get(
+                    "presentation_summary", ""
+                ),
                 status="success",
                 message=(
                     "تم تحليل المستند بنجاح (بدون تحليل الصور)"
@@ -279,7 +301,7 @@ async def get_page_analysis(session_id: str, page_number: int):
 
         # First, try to get analysis from saved JSON file
         saved_analysis = json_storage_service.load_document_analysis(session_id)
-        
+
         if saved_analysis and "complete_analysis" in saved_analysis:
             # Use saved analysis data
             try:
@@ -288,16 +310,18 @@ async def get_page_analysis(session_id: str, page_number: int):
                     if page_data["page_number"] == page_number:
                         page_analysis_data = page_data
                         break
-                
+
                 if page_analysis_data:
                     return SlideAnalysisResponse(
                         page_number=page_number,
                         title=page_analysis_data.get("title", f"Page {page_number}"),
-                        original_text=clean_and_format_text(page_analysis_data.get("original_text", "")),
+                        original_text=clean_and_format_text(
+                            page_analysis_data.get("original_text", "")
+                        ),
                         explanation=page_analysis_data.get("text_explanation", ""),
                         image_analysis=page_analysis_data.get("image_analysis", ""),
                     )
-            except Exception as e:
+            except Exception:
                 # If there's an error with saved data, fall back to session data
                 pass
 
@@ -312,9 +336,12 @@ async def get_page_analysis(session_id: str, page_number: int):
 
         # Get image analysis - prefer from session first, then real-time
         image_analysis = ""
-        
+
         # Check if we have image analysis in session
-        if session.get("image_analysis_result") and "image_analyses" in session["image_analysis_result"]:
+        if (
+            session.get("image_analysis_result")
+            and "image_analyses" in session["image_analysis_result"]
+        ):
             try:
                 for img_analysis in session["image_analysis_result"]["image_analyses"]:
                     if img_analysis["page_number"] == page_number:
@@ -322,7 +349,7 @@ async def get_page_analysis(session_id: str, page_number: int):
                         break
             except Exception:
                 pass
-        
+
         # If no image analysis found, perform real-time analysis
         if not image_analysis:
             image_base64 = page_data.get("image_base64", "")
@@ -369,7 +396,7 @@ async def get_json_analysis(session_id: str):
 
         # Load analysis from JSON file
         analysis_data = json_storage_service.load_document_analysis(session_id)
-        
+
         if not analysis_data:
             raise HTTPException(status_code=404, detail="ملف التحليل غير موجود")
 
@@ -396,9 +423,9 @@ async def download_json_analysis(session_id: str):
 
         # Get file path
         file_path = json_storage_service.get_analysis_file_path(session_id)
-        
+
         # Read file content
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with open(file_path, "r", encoding="utf-8") as f:
             content = f.read()
 
         # Get session info for filename
@@ -411,7 +438,7 @@ async def download_json_analysis(session_id: str):
             media_type="application/json",
             headers={
                 "Content-Disposition": f"attachment; filename={download_filename}"
-            }
+            },
         )
 
     except Exception as e:
@@ -419,37 +446,6 @@ async def download_json_analysis(session_id: str):
             status_code=500, detail=f"خطأ في تحميل ملف التحليل: {str(e)}"
         )
 
-
-@router.get("/{session_id}/page/{page_number}/image")
-async def get_page_image(session_id: str, page_number: int):
-    """
-    الحصول على صورة الصفحة/الشريحة
-    """
-    try:
-        if session_id not in document_sessions:
-            raise HTTPException(status_code=404, detail="جلسة المستند غير موجودة")
-
-        session = document_sessions[session_id]
-
-        if page_number < 1 or page_number > session["total_pages"]:
-            raise HTTPException(status_code=400, detail="رقم الصفحة غير صحيح")
-
-        # Get page image
-        page_index = page_number - 1
-        page_data = session["document_data"]["pages"][page_index]
-
-        if "image_base64" not in page_data:
-            raise HTTPException(status_code=404, detail="صورة الصفحة غير متوفرة")
-
-        # Decode base64 image
-        image_data = base64.b64decode(page_data["image_base64"])
-
-        return Response(content=image_data, media_type="image/png")
-
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"خطأ في الحصول على صورة الصفحة: {str(e)}"
-        )
 
 
 @router.get("/{session_id}/summary", response_model=DocumentSummaryResponse)
@@ -463,25 +459,29 @@ async def get_document_summary(session_id: str):
 
         session = document_sessions[session_id]
         analysis = session["analysis"]
-        
+
         # Get text analysis
         slides_analysis = analysis.get("slides_analysis", [])
-        
+
         # Try to load image analysis from JSON storage
         try:
             json_storage = JSONStorageService()
             saved_analysis = json_storage.load_document_analysis(session_id)
-            
-            if saved_analysis and "image_analysis" in saved_analysis and "image_analyses" in saved_analysis["image_analysis"]:
+
+            if (
+                saved_analysis
+                and "image_analysis" in saved_analysis
+                and "image_analyses" in saved_analysis["image_analysis"]
+            ):
                 # Get image analyses from the correct location in JSON structure
                 image_analyses = saved_analysis["image_analysis"]["image_analyses"]
-                
+
                 # Create a mapping of page numbers to image analyses
                 image_analysis_map = {
                     img_analysis["page_number"]: img_analysis.get("image_analysis", "")
                     for img_analysis in image_analyses
                 }
-                
+
                 # Add image_analysis to each slide
                 for slide in slides_analysis:
                     slide_number = slide.get("slide_number", 0)
@@ -490,7 +490,7 @@ async def get_document_summary(session_id: str):
                 # No saved image analysis, add empty image_analysis to each slide
                 for slide in slides_analysis:
                     slide["image_analysis"] = ""
-                    
+
         except Exception as e:
             logger.error(f"Error loading image analysis for summary: {str(e)}")
             # Add empty image_analysis to each slide as fallback
@@ -553,21 +553,21 @@ async def delete_document_session(session_id: str):
     try:
         session_deleted = False
         json_deleted = False
-        
+
         # Delete from memory
         if session_id in document_sessions:
             del document_sessions[session_id]
             session_deleted = True
-        
+
         # Delete JSON analysis file
         if json_storage_service.analysis_exists(session_id):
             json_deleted = json_storage_service.delete_analysis(session_id)
-        
+
         if session_deleted or json_deleted:
             return {
                 "message": "تم حذف جلسة المستند وملف التحليل بنجاح",
                 "session_deleted": session_deleted,
-                "json_file_deleted": json_deleted
+                "json_file_deleted": json_deleted,
             }
         else:
             raise HTTPException(status_code=404, detail="جلسة المستند غير موجودة")
@@ -593,10 +593,7 @@ async def list_all_analyses():
     """
     try:
         analyses = json_storage_service.list_all_analyses()
-        return {
-            "total_analyses": len(analyses),
-            "analyses": analyses
-        }
+        return {"total_analyses": len(analyses), "analyses": analyses}
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"خطأ في الحصول على قائمة التحليلات: {str(e)}"
@@ -626,9 +623,11 @@ async def ask_page_question(
         page_data = session["document_data"]["pages"][page_index]
 
         image_base64 = page_data.get("image_base64", "")
-        
+
         # Check if there's actual image content
-        if not image_base64 or not gemini_service.has_actual_image_content(image_base64):
+        if not image_base64 or not gemini_service.has_actual_image_content(
+            image_base64
+        ):
             # No actual image content available
             language = session.get("language", "arabic")
             no_image_message = (

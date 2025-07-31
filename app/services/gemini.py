@@ -968,7 +968,7 @@ Respond directly and helpfully in 2-4 sentences only. Do not use markdown format
         Public method to check if the base64 string contains actual image content
         """
         return self._has_actual_image_content(image_base64)
-        
+
     def _has_actual_image_content(self, image_base64: str) -> bool:
         """
         Check if the base64 string contains actual image content (not just text rendered as image)
@@ -976,114 +976,131 @@ Respond directly and helpfully in 2-4 sentences only. Do not use markdown format
         """
         if not image_base64 or len(image_base64.strip()) == 0:
             return False
-            
+
         try:
             # Decode base64 to check if it's valid image data
             import base64
             from PIL import Image
             import io
-            
+
             # Try to decode base64
             image_data = base64.b64decode(image_base64)
-            
+
             # Check if decoded data is too small (likely not a real image)
             if len(image_data) < 1000:  # Less than 1KB is likely not a meaningful image
                 return False
-                
+
             # Try to open as image to validate it's actual image content
             with Image.open(io.BytesIO(image_data)) as img:
                 # Check image dimensions - very small images might be placeholders
                 width, height = img.size
                 if width < 50 or height < 50:
                     return False
-                
+
                 # Convert to RGB for analysis
-                rgb_img = img.convert('RGB')
-                
+                rgb_img = img.convert("RGB")
+
                 # Try advanced analysis with numpy if available
                 try:
                     import numpy as np
-                    
+
                     # Convert to numpy array for color analysis
                     img_array = np.array(rgb_img)
-                    
+
                     # Check if image is mostly white/blank (text-only slides often have white backgrounds)
                     # Calculate average color
                     avg_color = np.mean(img_array, axis=(0, 1))
-                    
+
                     # If average color is very close to white (240+ on all channels), likely text-only
                     if all(channel > 240 for channel in avg_color):
                         # Additional check: calculate color variance
                         color_variance = np.var(img_array, axis=(0, 1))
                         avg_variance = np.mean(color_variance)
-                        
+
                         # If variance is very low, it's mostly uniform color (likely text on white)
-                        if avg_variance < 100:  # Low variance suggests uniform background
+                        if (
+                            avg_variance < 100
+                        ):  # Low variance suggests uniform background
                             return False
-                    
+
                     # Check for color diversity - real images typically have more color variation
-                    unique_colors = len(np.unique(img_array.reshape(-1, img_array.shape[-1]), axis=0))
+                    unique_colors = len(
+                        np.unique(img_array.reshape(-1, img_array.shape[-1]), axis=0)
+                    )
                     total_pixels = width * height
                     color_ratio = unique_colors / total_pixels
-                    
+
                     # If color ratio is very low, might be simple text/graphics
-                    if color_ratio < 0.01:  # Less than 1% unique colors suggests simple content
+                    if (
+                        color_ratio < 0.01
+                    ):  # Less than 1% unique colors suggests simple content
                         return False
-                    
+
                     # Check if image is mostly transparent (for RGBA images)
-                    if img.mode in ('RGBA', 'LA'):
+                    if img.mode in ("RGBA", "LA"):
                         alpha_channel = img.split()[-1]
                         alpha_data = np.array(alpha_channel)
                         non_transparent_pixels = np.sum(alpha_data > 10)
-                        if non_transparent_pixels < (width * height * 0.05):  # Less than 5% visible content
+                        if non_transparent_pixels < (
+                            width * height * 0.05
+                        ):  # Less than 5% visible content
                             return False
-                    
+
                     # Additional check: detect if image contains complex visual elements
                     # Convert to grayscale for edge detection
-                    gray_img = rgb_img.convert('L')
+                    gray_img = rgb_img.convert("L")
                     gray_array = np.array(gray_img)
-                    
+
                     # Simple edge detection - real images usually have more edges
-                    edges = np.abs(np.diff(gray_array, axis=0)).sum() + np.abs(np.diff(gray_array, axis=1)).sum()
+                    edges = (
+                        np.abs(np.diff(gray_array, axis=0)).sum()
+                        + np.abs(np.diff(gray_array, axis=1)).sum()
+                    )
                     edge_density = edges / (width * height)
-                    
+
                     # If edge density is very low, likely simple text/shapes
                     if edge_density < 5:  # Threshold for edge complexity
                         return False
-                    
+
                 except ImportError:
                     # Fallback analysis without numpy - use simpler PIL-based checks
                     logger.info("NumPy not available, using simpler image analysis")
-                    
+
                     # Sample pixels from different areas to check for diversity
                     sample_size = min(width, height, 100)  # Sample up to 100x100 area
                     step_x = max(1, width // sample_size)
                     step_y = max(1, height // sample_size)
-                    
+
                     colors = []
                     for x in range(0, width, step_x):
                         for y in range(0, height, step_y):
                             if x < width and y < height:
                                 colors.append(rgb_img.getpixel((x, y)))
-                    
+
                     # Check color diversity
                     unique_colors = len(set(colors))
                     if unique_colors < len(colors) * 0.1:  # Less than 10% unique colors
                         return False
-                    
+
                     # Check if mostly white background
-                    white_pixels = sum(1 for r, g, b in colors if r > 240 and g > 240 and b > 240)
-                    if white_pixels > len(colors) * 0.8:  # More than 80% white-ish pixels
+                    white_pixels = sum(
+                        1 for r, g, b in colors if r > 240 and g > 240 and b > 240
+                    )
+                    if (
+                        white_pixels > len(colors) * 0.8
+                    ):  # More than 80% white-ish pixels
                         return False
-                
+
                 # Image passes all checks - likely contains actual visual content
                 return True
-                
+
         except Exception as e:
             logger.warning(f"Error validating image content: {str(e)}")
             return False
-            
-    def analyze_all_page_images(self, document_data: Dict[str, Any], language: str = "arabic") -> Dict[str, Any]:
+
+    def analyze_all_page_images(
+        self, document_data: Dict[str, Any], language: str = "arabic"
+    ) -> Dict[str, Any]:
         """تحليل جميع صور الصفحات وحفظ النتائج في ملف JSON"""
         try:
             if not self.model:
@@ -1095,14 +1112,16 @@ Respond directly and helpfully in 2-4 sentences only. Do not use markdown format
             for page_index, page_data in enumerate(document_data.get("pages", [])):
                 page_number = page_index + 1
                 image_base64 = page_data.get("image_base64", "")
-                
+
                 # Check if there's actual image content before running analysis
                 if image_base64 and self._has_actual_image_content(image_base64):
                     try:
                         # Analyze each page image only if it contains real content
                         image_analysis = self.analyze_page_image(image_base64, language)
                     except Exception as e:
-                        logger.error(f"Error analyzing image for page {page_number}: {str(e)}")
+                        logger.error(
+                            f"Error analyzing image for page {page_number}: {str(e)}"
+                        )
                         image_analysis = (
                             f"فشل في تحليل صورة الصفحة {page_number}"
                             if language == "arabic"
@@ -1111,18 +1130,20 @@ Respond directly and helpfully in 2-4 sentences only. Do not use markdown format
                 else:
                     # No actual image content available - return empty string
                     image_analysis = ""
-                    logger.info(f"Page {page_number}: No actual image content detected, skipping analysis")
+                    logger.info(
+                        f"Page {page_number}: No actual image content detected, skipping analysis"
+                    )
 
                 page_analysis = {
                     "page_number": page_number,
                     "title": page_data.get("title", f"Page {page_number}"),
                     "original_text": page_data.get("text", ""),
                     "image_analysis": image_analysis,
-                    "processed_at": None  # Will be set when saving to file
+                    "processed_at": None,  # Will be set when saving to file
                 }
-                
+
                 image_analyses.append(page_analysis)
-                
+
                 # Log progress
                 logger.info(f"Analyzed image for page {page_number}/{total_pages}")
 
@@ -1130,14 +1151,14 @@ Respond directly and helpfully in 2-4 sentences only. Do not use markdown format
                 "total_pages": total_pages,
                 "language": language,
                 "image_analyses": image_analyses,
-                "status": "success"
+                "status": "success",
             }
 
         except Exception as e:
             logger.error(f"Error in bulk image analysis: {e}")
             return {
                 "error": f"Error occurred during bulk image analysis: {str(e)}",
-                "status": "failed"
+                "status": "failed",
             }
 
     def analyze_page_with_question(

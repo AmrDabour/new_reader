@@ -57,7 +57,6 @@ class AnalyzeDocumentResponse(BaseModel):
     file_type: str  # .pptx, .ppt, .pdf
     total_pages: int
     language: str  # "arabic" or "english"
-    presentation_summary: str
     status: str
     message: str
 
@@ -76,7 +75,6 @@ class DocumentSummaryResponse(BaseModel):
     session_id: str
     filename: str
     total_pages: int
-    presentation_summary: str
     slides_analysis: List[Dict[str, Any]]
     language: str
 
@@ -121,7 +119,6 @@ class SlideAnalysis(BaseModel):
 
 
 class DocumentAnalysis(BaseModel):
-    presentation_summary: str
     total_slides: int
     slides_analysis: List[SlideAnalysis]
     language: str
