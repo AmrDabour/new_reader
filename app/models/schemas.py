@@ -57,7 +57,6 @@ class AnalyzeDocumentResponse(BaseModel):
     file_type: str  # .pptx, .ppt, .pdf
     total_pages: int
     language: str  # "arabic" or "english"
-    presentation_summary: str
     status: str
     message: str
 
@@ -67,7 +66,6 @@ class SlideAnalysisResponse(BaseModel):
     page_number: int
     title: str
     original_text: str
-    explanation: str
     image_analysis: str  # Added image analysis field
 
 
@@ -76,7 +74,6 @@ class DocumentSummaryResponse(BaseModel):
     session_id: str
     filename: str
     total_pages: int
-    presentation_summary: str
     slides_analysis: List[Dict[str, Any]]
     language: str
 
@@ -127,16 +124,7 @@ class DocumentAnalysis(BaseModel):
     language: str
 
 
-# --- Page Question Analysis ---
-class PageQuestionRequest(BaseModel):
-    question: str  # النص المستخرج من الصوت
-
-
-class PageQuestionResponse(BaseModel):
-    answer: str
-    session_id: str
-    page_number: int
-    question: str
+ 
 
 
 # =============================================================================

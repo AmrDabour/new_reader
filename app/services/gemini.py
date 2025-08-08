@@ -823,7 +823,8 @@ Respond directly and helpfully in 2-4 sentences only. Do not use markdown format
         if any(word in command for word in ["التالي", "التالية", "next"]):
             return min(current_page + 1, total_pages)
         elif any(word in command for word in ["السابق", "السابقة", "previous", "prev"]):
-            return max(current_page - 1, 1)
+            # Ensure result stays within 1..total_pages even if current_page is out of range
+            return max(min(current_page - 1, total_pages), 1)
         elif any(word in command for word in ["الأول", "البداية", "first", "start"]):
             return 1
         elif any(word in command for word in ["الأخير", "النهاية", "last", "end"]):
@@ -1189,136 +1190,8 @@ Now analyze the image in the context of this text and explain the visual content
                 "status": "failed",
             }
 
-    def analyze_page_with_question(
-        self,
-        image_base64: str,
-        question: str,
-        language: str = "arabic",
-        page_text: str = "",
-    ) -> str:
-        """تحليل صورة الصفحة مع الإجابة على سؤال محدد مع السياق النصي"""
-        try:
-            if not self.model:
-                return (
-                    "خدمة تحليل الصور غير متوفرة حالياً"
-                    if language == "arabic"
-                    else "Image analysis service is currently unavailable"
-                )
-
-            if language == "arabic":
-                prompt = f"""انت مساعد ذكي متخصص في تحليل المحتوى التعليمي والوثائق.
-                
-سؤال المستخدم: {question}
-
-حلل الصورة واجب على السؤال بشكل مفصل ومفيد باللغة العربية.
-- ركز على تفاصيل السؤال المطروح
-- اعطي شرح واضح ومفصل
-- استخدم المعلومات الموجودة في الصورة
-- اجعل الإجابة تفصيلية ومفيدة للمستخدم"""
-            else:
-                prompt = f"""You are an intelligent assistant specialized in analyzing educational content and documents.
-
-User's question: {question}
-
-Analyze the image and answer the question in detail and helpfully in English.
-- Focus on the details of the question asked
-- Provide clear and detailed explanation  
-- Use the information available in the image
-- Make the answer detailed and useful for the user"""
-
-            # تحويل base64 إلى image part
-            image_part = {"mime_type": "image/png", "data": image_base64}
-
-            # Add safety settings to reduce blocking
-            safety_settings = [
-                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-                {
-                    "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-                    "threshold": "BLOCK_NONE",
-                },
-                {
-                    "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
-                    "threshold": "BLOCK_NONE",
-                },
-            ]
-
-            response = self.model.generate_content(
-                [prompt, image_part],
-                generation_config=genai.GenerationConfig(
-                    temperature=0.3, candidate_count=1, max_output_tokens=2000
-                ),
-                safety_settings=safety_settings,
-            )
-
-            # Check response and handle errors
-            try:
-                if hasattr(response, "candidates") and response.candidates:
-                    candidate = response.candidates[0]
-                    finish_reason = (
-                        candidate.finish_reason.name
-                        if hasattr(candidate.finish_reason, "name")
-                        else str(candidate.finish_reason)
-                    )
-
-                    # Check if response was blocked
-                    if finish_reason in [
-                        "SAFETY",
-                        "RECITATION",
-                        "OTHER",
-                    ] or finish_reason in ["1", "2", "3"]:
-                        fallback_msg = (
-                            "عذراً، لم نتمكن من تحليل الصورة والإجابة على السؤال بسبب قيود النظام."
-                            if language == "arabic"
-                            else "Sorry, unable to analyze the image and answer the question due to system restrictions."
-                        )
-                        return fallback_msg
-
-                    # Check if not STOP (4)
-                    if finish_reason not in ["STOP", "4"]:
-                        fallback_msg = (
-                            "فشل في تحليل الصورة والإجابة على السؤال."
-                            if language == "arabic"
-                            else "Failed to analyze the image and answer the question."
-                        )
-                        return fallback_msg
-                else:
-                    fallback_msg = (
-                        "لم نتمكن من تحليل الصورة والإجابة على السؤال."
-                        if language == "arabic"
-                        else "Unable to analyze the image and answer the question."
-                    )
-                    return fallback_msg
-
-                # Try to get text safely
-                response_text = getattr(response, "text", None)
-                if not response_text:
-                    fallback_msg = (
-                        "لم نتمكن من الحصول على نتيجة التحليل."
-                        if language == "arabic"
-                        else "Could not get analysis result."
-                    )
-                    return fallback_msg
-
-                # إزالة تنسيقات Markdown من الرد
-                clean_response = self.remove_markdown_formatting(response_text)
-                return clean_response
-
-            except Exception:
-                fallback_msg = (
-                    "خطأ في الحصول على النتيجة."
-                    if language == "arabic"
-                    else "Error getting result."
-                )
-                return fallback_msg
-
-        except Exception as e:
-            logger.error(f"Error analyzing page with question: {e}")
-            return (
-                "حدث خطأ في تحليل الصورة والإجابة على السؤال"
-                if language == "arabic"
-                else "Error occurred while analyzing the image and answering the question"
-            )
+    # NOTE: The per-page question analysis endpoint was removed; corresponding method
+    # analyze_page_with_question has been deleted to keep the service minimal.
 
     # =============================================================================
     # HELPER METHODS FOR PPT & PDF READER

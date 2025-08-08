@@ -65,10 +65,7 @@ class JSONStorageService:
             logger.error(f"Error loading analysis from JSON: {str(e)}")
             return None
 
-    def get_analysis_file_path(self, session_id: str) -> str:
-        """Get the file path for a session's analysis"""
-        filename = f"{session_id}_analysis.json"
-        return str(self.storage_dir / filename)
+    
 
     def analysis_exists(self, session_id: str) -> bool:
         """Check if analysis file exists for session"""
@@ -92,25 +89,7 @@ class JSONStorageService:
             logger.error(f"Error deleting analysis file: {str(e)}")
             return False
 
-    def list_all_analyses(self) -> list:
-        """List all analysis files"""
-        try:
-            analyses = []
-            for file_path in self.storage_dir.glob("*_analysis.json"):
-                session_id = file_path.stem.replace("_analysis", "")
-                analyses.append(
-                    {
-                        "session_id": session_id,
-                        "file_path": str(file_path),
-                        "created_at": datetime.fromtimestamp(
-                            file_path.stat().st_ctime
-                        ).isoformat(),
-                    }
-                )
-            return analyses
-        except Exception as e:
-            logger.error(f"Error listing analyses: {str(e)}")
-            return []
+    # NOTE: list_all_analyses endpoint was removed; method deleted for cleanup.
 
     def update_page_analysis(
         self, session_id: str, page_number: int, new_analysis: str
