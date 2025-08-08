@@ -846,8 +846,10 @@ Respond directly and helpfully in 2-4 sentences only. Do not use markdown format
 
         return None
 
-    def analyze_page_image(self, image_base64: str, language: str = "arabic") -> str:
-        """تحليل صورة الصفحة باستخدام الذكاء الاصطناعي"""
+    def analyze_page_image(
+        self, image_base64: str, language: str = "arabic", page_text: str = ""
+    ) -> str:
+        """تحليل صورة الصفحة باستخدام الذكاء الاصطناعي مع السياق النصي"""
         try:
             if not self.model:
                 return (
@@ -857,21 +859,43 @@ Respond directly and helpfully in 2-4 sentences only. Do not use markdown format
                 )
 
             if language == "arabic":
-                prompt = """اشرح محتوى هذه الصورة مباشرة باللغة العربية بدون مقدمات.
-                - إذا كانت الصورة بسيطة: 3 جمل تكفي
-                - إذا كانت معقدة ومليئة بالتفاصيل: حتى 8 جمل
-                - ركز على المحتوى الأساسي والعناصر المهمة
-                - اذكر أي تفاصيل تقنية أو تعليمية أو مخططات أو مفاهيم مهمة
-                - ابدأ الرد مباشرة بالمحتوى، لا تقل "سأقوم بتحليل" أو "بالتأكيد" أو أي مقدمات
-                """
+                if page_text and page_text.strip():
+                    prompt = f"""لديك النص التالي المستخرج من هذه الصفحة:
+"{page_text}"
+
+الآن حلل الصورة في سياق هذا النص واشرح المحتوى المرئي مباشرة باللغة العربية:
+- اربط العناصر المرئية (مخططات، صور، رسوم بيانية) بالمحتوى النصي
+- اشرح كيف تدعم الصورة أو توضح النقاط المذكورة في النص
+- إذا كانت الصورة بسيطة: 3-4 جمل تكفي
+- إذا كانت معقدة: حتى 8 جمل مع التفاصيل المهمة
+- ركز على الربط بين النص والعناصر المرئية
+- ابدأ الرد مباشرة بالتحليل بدون مقدمات"""
+                else:
+                    prompt = """اشرح محتوى هذه الصورة مباشرة باللغة العربية بدون مقدمات.
+- إذا كانت الصورة بسيطة: 3 جمل تكفي
+- إذا كانت معقدة ومليئة بالتفاصيل: حتى 8 جمل
+- ركز على المحتوى الأساسي والعناصر المهمة
+- اذكر أي تفاصيل تقنية أو تعليمية أو مخططات أو مفاهيم مهمة
+- ابدأ الرد مباشرة بالمحتوى، لا تقل "سأقوم بتحليل" أو "بالتأكيد" أو أي مقدمات"""
             else:
-                prompt = """Explain the content of this image directly in English without introductions.
-                - If the image is simple: 3 sentences are enough
-                - If it's complex with many details: up to 8 sentences
-                - Focus on the main content and important elements
-                - Mention any technical, educational details, graphs or important concepts
-                - Start the response directly with the content, don't say "I will analyze" or "Certainly" or any introductions
-                """
+                if page_text and page_text.strip():
+                    prompt = f"""Here is the extracted text from this page:
+"{page_text}"
+
+Now analyze the image in the context of this text and explain the visual content directly in English:
+- Connect visual elements (charts, images, diagrams) with the textual content
+- Explain how the image supports or illustrates the points mentioned in the text
+- If the image is simple: 3-4 sentences are enough
+- If it's complex: up to 8 sentences with important details
+- Focus on linking the text with visual elements
+- Start the response directly with the analysis without introductions"""
+                else:
+                    prompt = """Explain the content of this image directly in English without introductions.
+- If the image is simple: 3 sentences are enough
+- If it's complex with many details: up to 8 sentences
+- Focus on the main content and important elements
+- Mention any technical, educational details, graphs or important concepts
+- Start the response directly with the content, don't say "I will analyze" or "Certainly" or any introductions"""
 
             # تحويل base64 إلى image part
             image_part = {"mime_type": "image/png", "data": image_base64}
@@ -1116,8 +1140,12 @@ Respond directly and helpfully in 2-4 sentences only. Do not use markdown format
                 # Check if there's actual image content before running analysis
                 if image_base64 and self._has_actual_image_content(image_base64):
                     try:
+                        # Get page text for context
+                        page_text = page_data.get("text", "")
                         # Analyze each page image only if it contains real content
-                        image_analysis = self.analyze_page_image(image_base64, language)
+                        image_analysis = self.analyze_page_image(
+                            image_base64, language, page_text
+                        )
                     except Exception as e:
                         logger.error(
                             f"Error analyzing image for page {page_number}: {str(e)}"
@@ -1162,9 +1190,13 @@ Respond directly and helpfully in 2-4 sentences only. Do not use markdown format
             }
 
     def analyze_page_with_question(
-        self, image_base64: str, question: str, language: str = "arabic"
+        self,
+        image_base64: str,
+        question: str,
+        language: str = "arabic",
+        page_text: str = "",
     ) -> str:
-        """تحليل صورة الصفحة مع الإجابة على سؤال محدد"""
+        """تحليل صورة الصفحة مع الإجابة على سؤال محدد مع السياق النصي"""
         try:
             if not self.model:
                 return (
@@ -1174,27 +1206,25 @@ Respond directly and helpfully in 2-4 sentences only. Do not use markdown format
                 )
 
             if language == "arabic":
-                prompt = f"""أنت مساعد ذكي متخصص في الإجابة على الأسئلة بناءً على المحتوى المرئي.
+                prompt = f"""انت مساعد ذكي متخصص في تحليل المحتوى التعليمي والوثائق.
                 
-السؤال: {question}
+سؤال المستخدم: {question}
 
-انظر إلى الصورة وأجب على السؤال بشكل مختصر ومباشر:
-- أجب بإيجاز ووضوح (1-3 جمل فقط)
-- ركز على الإجابة المباشرة للسؤال
-- استخدم المعلومات المرئية في الصورة
-- لا تعطي تفاصيل إضافية غير مطلوبة
-- ابدأ الإجابة مباشرة بدون مقدمات"""
+حلل الصورة واجب على السؤال بشكل مفصل ومفيد باللغة العربية.
+- ركز على تفاصيل السؤال المطروح
+- اعطي شرح واضح ومفصل
+- استخدم المعلومات الموجودة في الصورة
+- اجعل الإجابة تفصيلية ومفيدة للمستخدم"""
             else:
-                prompt = f"""You are an intelligent assistant specialized in answering questions based on visual content.
+                prompt = f"""You are an intelligent assistant specialized in analyzing educational content and documents.
 
-Question: {question}
+User's question: {question}
 
-Look at the image and answer the question concisely and directly:
-- Answer briefly and clearly (1-3 sentences only)
-- Focus on the direct answer to the question
-- Use visual information from the image
-- Don't provide unnecessary additional details
-- Start the answer directly without introductions"""
+Analyze the image and answer the question in detail and helpfully in English.
+- Focus on the details of the question asked
+- Provide clear and detailed explanation  
+- Use the information available in the image
+- Make the answer detailed and useful for the user"""
 
             # تحويل base64 إلى image part
             image_part = {"mime_type": "image/png", "data": image_base64}
@@ -1216,7 +1246,7 @@ Look at the image and answer the question concisely and directly:
             response = self.model.generate_content(
                 [prompt, image_part],
                 generation_config=genai.GenerationConfig(
-                    temperature=0.3, candidate_count=1, max_output_tokens=300
+                    temperature=0.3, candidate_count=1, max_output_tokens=2000
                 ),
                 safety_settings=safety_settings,
             )
@@ -1329,6 +1359,7 @@ Look at the image and answer the question concisely and directly:
 قم بتحليل العرض التقديمي وأعطني النتائج بتنسيق JSON التالي بدقة:
 
 {{
+  "presentation_summary": "ملخص شامل ومفصل للعرض التقديمي بأكمله (3-5 جمل)",
   "slides_analysis": [
     {{
       "slide_number": رقم_الشريحة,
@@ -1367,6 +1398,7 @@ Presentation Content:
 Analyze this presentation and provide results in the following JSON format exactly:
 
 {{
+  "presentation_summary": "Comprehensive and detailed summary of the entire presentation (3-5 sentences)",
   "slides_analysis": [
     {{
       "slide_number": slide_number,
@@ -1413,7 +1445,10 @@ Respond with valid JSON only, without any additional text, warnings, or disclaim
                 parsed_json = json.loads(clean_text)
 
                 # التحقق من وجود البنية المطلوبة
-                if "slides_analysis" in parsed_json:
+                if (
+                    "presentation_summary" in parsed_json
+                    and "slides_analysis" in parsed_json
+                ):
                     return parsed_json
 
             except json.JSONDecodeError:
@@ -1422,13 +1457,27 @@ Respond with valid JSON only, without any additional text, warnings, or disclaim
             # إذا فشل التحليل المباشر، استخدم التحليل التقليدي
             sections = response_text.split("\n\n")
 
-            result = {"slides_analysis": []}
+            result = {"presentation_summary": "", "slides_analysis": []}
 
             # استخراج المعلومات من النص بشكل تقليدي
             current_summary = ""
             for section in sections:
                 if section.strip():
-                    current_summary += section + " "
+                    # إذا كان القسم يحتوي على ملخص
+                    if (
+                        not result["presentation_summary"]
+                        and len(section.split("\n")) <= 3
+                    ):
+                        result["presentation_summary"] = section.strip()
+                    else:
+                        current_summary += section + " "
+
+            if not result["presentation_summary"]:
+                result["presentation_summary"] = (
+                    current_summary[:500] + "..."
+                    if len(current_summary) > 500
+                    else current_summary
+                )
 
             # إنشاء تحليل الشرائح كـ fallback
             result["slides_analysis"] = []
@@ -1476,7 +1525,13 @@ Respond with valid JSON only, without any additional text, warnings, or disclaim
                 }
                 slides_analysis.append(slide_analysis)
 
+            if language == "arabic":
+                presentation_summary = f"هذا العرض التقديمي يحتوي على {total_pages} شريحة تغطي موضوعاً شاملاً ومهماً. المحتوى منظم بطريقة تدريجية تساعد على الفهم والاستيعاب. كل شريحة تحتوي على معلومات قيمة ومترابطة مع باقي المحتوى. العرض يقدم معرفة شاملة وتطبيقية حول الموضوع المطروح."
+            else:
+                presentation_summary = f"This presentation contains {total_pages} slides covering a comprehensive and important topic. The content is organized in a progressive manner that aids understanding and comprehension. Each slide contains valuable information interconnected with the rest of the content. The presentation provides comprehensive and practical knowledge about the presented topic."
+
             return {
+                "presentation_summary": presentation_summary,
                 "slides_analysis": slides_analysis,
             }
 
@@ -1490,6 +1545,7 @@ Respond with valid JSON only, without any additional text, warnings, or disclaim
         """إنشاء تحليل احتياطي من النص المعطى"""
         if language == "arabic":
             return {
+                "presentation_summary": "تم استخراج المحتوى بنجاح ويحتوي على معلومات مفيدة ومتنوعة.",
                 "slides_analysis": [
                     {
                         "slide_number": 1,
@@ -1501,6 +1557,7 @@ Respond with valid JSON only, without any additional text, warnings, or disclaim
             }
         else:
             return {
+                "presentation_summary": "Content extracted successfully and contains useful and diverse information.",
                 "slides_analysis": [
                     {
                         "slide_number": 1,

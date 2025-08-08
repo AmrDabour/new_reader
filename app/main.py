@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 # Import routers for different services
-from app.routers import form_analyzer, document_reader, page_image
+from app.routers import form_analyzer, document_reader
 from app.config import get_settings
 
 settings = get_settings()
@@ -25,7 +25,6 @@ app.add_middleware(
 # Include routers
 app.include_router(form_analyzer.router)
 app.include_router(document_reader.router, prefix="/document", tags=["Document Reader"])
-app.include_router(page_image.router, prefix="/document", tags=["Page Images"])
 
 
 @app.get("/")

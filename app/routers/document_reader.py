@@ -8,9 +8,9 @@ from app.services.gemini import GeminiService
 from app.services.document_processor import DocumentProcessor
 from app.services.speech import SpeechService
 from app.services.json_storage import JSONStorageService
-from app.routers import page_image  # Import page image module
 from app.models.schemas import (
     AnalyzeDocumentResponse,
+    SlideAnalysisResponse,
     DocumentSummaryResponse,
     NavigationRequest,
     NavigationResponse,
@@ -33,9 +33,6 @@ logger = logging.getLogger(__name__)
 
 # Store document sessions in memory (in production, use a database)
 document_sessions = {}
-
-# Set up shared document sessions with page_image module
-page_image.set_document_sessions(document_sessions)
 
 
 @router.post("/upload", response_model=AnalyzeDocumentResponse)
@@ -78,6 +75,11 @@ async def upload_document(
         except Exception:
             # Fallback analysis for testing
             text_analysis_result = {
+                "presentation_summary": (
+                    "تم إنشاء ملخص تجريبي للمستند"
+                    if language == "arabic"
+                    else "Test document summary created"
+                ),
                 "slides_analysis": [
                     {
                         "title": page.get("title", f"Page {i+1}"),
@@ -227,6 +229,9 @@ async def upload_document(
                     file_type=file_extension,
                     total_pages=len(document_data["pages"]),
                     language=language,
+                    presentation_summary=text_analysis_result.get(
+                        "presentation_summary", ""
+                    ),
                     status="success",
                     message=(
                         f"تم تحليل المستند والصور بنجاح وحفظ النتائج في: {json_file_path}"
@@ -243,6 +248,9 @@ async def upload_document(
                     file_type=file_extension,
                     total_pages=len(document_data["pages"]),
                     language=language,
+                    presentation_summary=text_analysis_result.get(
+                        "presentation_summary", ""
+                    ),
                     status="success",
                     message=(
                         f"تم تحليل المستند بنجاح ولكن فشل في حفظ ملف JSON: {str(e)}"
@@ -258,6 +266,9 @@ async def upload_document(
                 file_type=file_extension,
                 total_pages=len(document_data["pages"]),
                 language=language,
+                presentation_summary=text_analysis_result.get(
+                    "presentation_summary", ""
+                ),
                 status="success",
                 message=(
                     "تم تحليل المستند بنجاح (بدون تحليل الصور)"
@@ -268,6 +279,200 @@ async def upload_document(
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"خطأ في معالجة المستند: {str(e)}")
+
+
+@router.get("/{session_id}/page/{page_number}", response_model=SlideAnalysisResponse)
+async def get_page_analysis(session_id: str, page_number: int):
+    """
+    الحصول على تحليل صفحة/شريحة محددة من الملف المحفوظ أو التحليل المباشر
+    """
+    try:
+        if session_id not in document_sessions:
+            raise HTTPException(status_code=404, detail="جلسة المستند غير موجودة")
+
+        session = document_sessions[session_id]
+
+        if page_number < 1 or page_number > session["total_pages"]:
+            raise HTTPException(status_code=400, detail="رقم الصفحة غير صحيح")
+
+        # First, try to get analysis from saved JSON file
+        saved_analysis = json_storage_service.load_document_analysis(session_id)
+
+        if saved_analysis and "complete_analysis" in saved_analysis:
+            # Use saved analysis data
+            try:
+                page_analysis_data = None
+                for page_data in saved_analysis["complete_analysis"]:
+                    if page_data["page_number"] == page_number:
+                        page_analysis_data = page_data
+                        break
+
+                if page_analysis_data:
+                    return SlideAnalysisResponse(
+                        page_number=page_number,
+                        title=page_analysis_data.get("title", f"Page {page_number}"),
+                        original_text=clean_and_format_text(
+                            page_analysis_data.get("original_text", "")
+                        ),
+                        explanation=page_analysis_data.get("text_explanation", ""),
+                        image_analysis=page_analysis_data.get("image_analysis", ""),
+                    )
+            except Exception:
+                # If there's an error with saved data, fall back to session data
+                pass
+
+        # Fallback: Use session data and perform real-time analysis if needed
+        page_index = page_number - 1
+        page_analysis = session["analysis"]["slides_analysis"][page_index]
+        page_data = session["document_data"]["pages"][page_index]
+
+        # Get original text and clean it
+        original_text = page_analysis.get("original_text", "")
+        cleaned_text = clean_and_format_text(original_text)
+
+        # Get image analysis - prefer from session first, then real-time
+        image_analysis = ""
+
+        # Check if we have image analysis in session
+        if (
+            session.get("image_analysis_result")
+            and "image_analyses" in session["image_analysis_result"]
+        ):
+            try:
+                for img_analysis in session["image_analysis_result"]["image_analyses"]:
+                    if img_analysis["page_number"] == page_number:
+                        image_analysis = img_analysis.get("image_analysis", "")
+                        break
+            except Exception:
+                pass
+
+        # If no image analysis found, perform real-time analysis
+        if not image_analysis:
+            image_base64 = page_data.get("image_base64", "")
+            language = session.get("language", "arabic")
+
+            # Check if there's actual image content before running analysis
+            if image_base64 and gemini_service.has_actual_image_content(image_base64):
+                try:
+                    image_analysis = gemini_service.analyze_page_image(
+                        image_base64, language, cleaned_text
+                    )
+                except Exception:
+                    image_analysis = (
+                        "لم نتمكن من تحليل صورة الصفحة"
+                        if language == "arabic"
+                        else "Unable to analyze page image"
+                    )
+            else:
+                # No actual image content available - return empty string
+                image_analysis = ""
+
+        return SlideAnalysisResponse(
+            page_number=page_number,
+            title=page_analysis.get("title", f"Page {page_number}"),
+            original_text=cleaned_text,
+            explanation=page_analysis.get("explanation", ""),
+            image_analysis=image_analysis,
+        )
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"خطأ في الحصول على تحليل الصفحة: {str(e)}"
+        )
+
+
+@router.get("/{session_id}/analysis/json")
+async def get_json_analysis(session_id: str):
+    """
+    الحصول على ملف التحليل الشامل بصيغة JSON
+    """
+    try:
+        if session_id not in document_sessions:
+            raise HTTPException(status_code=404, detail="جلسة المستند غير موجودة")
+
+        # Load analysis from JSON file
+        analysis_data = json_storage_service.load_document_analysis(session_id)
+
+        if not analysis_data:
+            raise HTTPException(status_code=404, detail="ملف التحليل غير موجود")
+
+        return analysis_data
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"خطأ في الحصول على ملف التحليل: {str(e)}"
+        )
+
+
+@router.get("/{session_id}/analysis/file")
+async def download_json_analysis(session_id: str):
+    """
+    تحميل ملف التحليل الشامل بصيغة JSON
+    """
+    try:
+        if session_id not in document_sessions:
+            raise HTTPException(status_code=404, detail="جلسة المستند غير موجودة")
+
+        # Check if analysis file exists
+        if not json_storage_service.analysis_exists(session_id):
+            raise HTTPException(status_code=404, detail="ملف التحليل غير موجود")
+
+        # Get file path
+        file_path = json_storage_service.get_analysis_file_path(session_id)
+
+        # Read file content
+        with open(file_path, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        # Get session info for filename
+        session = document_sessions[session_id]
+        original_filename = Path(session["filename"]).stem
+        download_filename = f"{original_filename}_analysis.json"
+
+        return Response(
+            content=content,
+            media_type="application/json",
+            headers={
+                "Content-Disposition": f"attachment; filename={download_filename}"
+            },
+        )
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"خطأ في تحميل ملف التحليل: {str(e)}"
+        )
+
+
+@router.get("/{session_id}/page/{page_number}/image")
+async def get_page_image(session_id: str, page_number: int):
+    """
+    الحصول على صورة الصفحة/الشريحة
+    """
+    try:
+        if session_id not in document_sessions:
+            raise HTTPException(status_code=404, detail="جلسة المستند غير موجودة")
+
+        session = document_sessions[session_id]
+
+        if page_number < 1 or page_number > session["total_pages"]:
+            raise HTTPException(status_code=400, detail="رقم الصفحة غير صحيح")
+
+        # Get page image
+        page_index = page_number - 1
+        page_data = session["document_data"]["pages"][page_index]
+
+        if "image_base64" not in page_data:
+            raise HTTPException(status_code=404, detail="صورة الصفحة غير متوفرة")
+
+        # Decode base64 image
+        image_data = base64.b64decode(page_data["image_base64"])
+
+        return Response(content=image_data, media_type="image/png")
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"خطأ في الحصول على صورة الصفحة: {str(e)}"
+        )
 
 
 @router.get("/{session_id}/summary", response_model=DocumentSummaryResponse)
@@ -285,54 +490,45 @@ async def get_document_summary(session_id: str):
         # Get text analysis
         slides_analysis = analysis.get("slides_analysis", [])
 
-        # Check if image analysis was enabled for this session
-        image_analysis_enabled = session.get("image_analysis_enabled", False)
-        
-        # Only add image_analysis if it was enabled
-        if image_analysis_enabled:
-            # Try to load image analysis from JSON storage
-            try:
-                json_storage = JSONStorageService()
-                saved_analysis = json_storage.load_document_analysis(session_id)
+        # Try to load image analysis from JSON storage
+        try:
+            json_storage = JSONStorageService()
+            saved_analysis = json_storage.load_document_analysis(session_id)
 
-                if (
-                    saved_analysis
-                    and "image_analysis" in saved_analysis
-                    and "image_analyses" in saved_analysis["image_analysis"]
-                ):
-                    # Get image analyses from the correct location in JSON structure
-                    image_analyses = saved_analysis["image_analysis"]["image_analyses"]
+            if (
+                saved_analysis
+                and "image_analysis" in saved_analysis
+                and "image_analyses" in saved_analysis["image_analysis"]
+            ):
+                # Get image analyses from the correct location in JSON structure
+                image_analyses = saved_analysis["image_analysis"]["image_analyses"]
 
-                    # Create a mapping of page numbers to image analyses
-                    image_analysis_map = {
-                        img_analysis["page_number"]: img_analysis.get("image_analysis", "")
-                        for img_analysis in image_analyses
-                    }
+                # Create a mapping of page numbers to image analyses
+                image_analysis_map = {
+                    img_analysis["page_number"]: img_analysis.get("image_analysis", "")
+                    for img_analysis in image_analyses
+                }
 
-                    # Add image_analysis to each slide
-                    for slide in slides_analysis:
-                        slide_number = slide.get("slide_number", 0)
-                        slide["image_analysis"] = image_analysis_map.get(slide_number, "")
-                else:
-                    # No saved image analysis, add empty image_analysis to each slide
-                    for slide in slides_analysis:
-                        slide["image_analysis"] = ""
-
-            except Exception as e:
-                logger.error(f"Error loading image analysis for summary: {str(e)}")
-                # Add empty image_analysis to each slide as fallback
+                # Add image_analysis to each slide
+                for slide in slides_analysis:
+                    slide_number = slide.get("slide_number", 0)
+                    slide["image_analysis"] = image_analysis_map.get(slide_number, "")
+            else:
+                # No saved image analysis, add empty image_analysis to each slide
                 for slide in slides_analysis:
                     slide["image_analysis"] = ""
 
-        # Remove explanation from slides_analysis for summary
-        for slide in slides_analysis:
-            if "explanation" in slide:
-                del slide["explanation"]
+        except Exception as e:
+            logger.error(f"Error loading image analysis for summary: {str(e)}")
+            # Add empty image_analysis to each slide as fallback
+            for slide in slides_analysis:
+                slide["image_analysis"] = ""
 
         return DocumentSummaryResponse(
             session_id=session_id,
             filename=session["filename"],
             total_pages=session["total_pages"],
+            presentation_summary=analysis.get("presentation_summary", ""),
             slides_analysis=slides_analysis,
             language=session["language"],
         )
@@ -417,6 +613,20 @@ def ping():
     }
 
 
+@router.get("/analyses/list")
+async def list_all_analyses():
+    """
+    عرض قائمة بجميع ملفات التحليل المحفوظة
+    """
+    try:
+        analyses = json_storage_service.list_all_analyses()
+        return {"total_analyses": len(analyses), "analyses": analyses}
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"خطأ في الحصول على قائمة التحليلات: {str(e)}"
+        )
+
+
 @router.post(
     "/{session_id}/page/{page_number}/question", response_model=PageQuestionResponse
 )
@@ -440,21 +650,17 @@ async def ask_page_question(
         page_data = session["document_data"]["pages"][page_index]
 
         image_base64 = page_data.get("image_base64", "")
-        
-        # Get language from session
-        language = session.get("language", "arabic")
-        
-        # Log image data availability for debugging
-        logger.info(f"Page {page_number}: Image data length = {len(image_base64) if image_base64 else 0}")
-        logger.info(f"Page {page_number}: Page data keys = {list(page_data.keys())}")
 
-        # Check if there's image data (more lenient check)
-        if not image_base64 or len(image_base64.strip()) == 0:
-            # No image data available at all
+        # Check if there's actual image content
+        if not image_base64 or not gemini_service.has_actual_image_content(
+            image_base64
+        ):
+            # No actual image content available
+            language = session.get("language", "arabic")
             no_image_message = (
-                "لا توجد بيانات صورة متاحة في هذه الصفحة للإجابة على السؤال."
+                "لا توجد صورة حقيقية في هذه الصفحة للإجابة على السؤال."
                 if language == "arabic"
-                else "No image data available on this page to answer the question."
+                else "There is no actual image content on this page to answer the question."
             )
             return PageQuestionResponse(
                 answer=no_image_message,
@@ -463,33 +669,15 @@ async def ask_page_question(
                 question=request.question,
             )
 
-        # Try to analyze with available image data
-        try:
-            # Use Gemini to analyze page with question
-            answer = gemini_service.analyze_page_with_question(
-                image_base64=image_base64,
-                question=request.question,
-                language=language,
-            )
-        except Exception as e:
-            logger.error(f"Error analyzing page with question: {str(e)}")
-            # Fallback to text-based answer if image analysis fails
-            page_text = page_data.get("text", "")
-            if page_text:
-                # Make fallback answer shorter and more direct
-                short_text = page_text[:200] + "..." if len(page_text) > 200 else page_text
-                fallback_answer = (
-                    f"بناءً على النص المتاح: {short_text}"
-                    if language == "arabic" 
-                    else f"Based on available text: {short_text}"
-                )
-            else:
-                fallback_answer = (
-                    "عذراً، لا يمكن تحليل الصورة ولا يوجد نص متاح."
-                    if language == "arabic"
-                    else "Sorry, cannot analyze image and no text available."
-                )
-            answer = fallback_answer
+        # Get language from session
+        language = session.get("language", "arabic")
+
+        # Use Gemini to analyze page with question only if there's actual image content
+        answer = gemini_service.analyze_page_with_question(
+            image_base64=image_base64,
+            question=request.question,
+            language=language,
+        )
 
         return PageQuestionResponse(
             answer=answer,
