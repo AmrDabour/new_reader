@@ -135,6 +135,8 @@ async def upload_document(
             "total_pages": len(document_data["pages"]),
             # كاش بسيط لنتائج تحليل الصور لكل صفحة خلال نفس الجلسة
             "image_analysis_cache": {},  # { page_number: str }
+            # احترم خيار المستخدم فيما إذا كان يريد تحليل الصور أم لا
+            "analyze_images": bool(analyze_images),
             # الصور تُحلَّل عند الطلب من endpoint الصفحة
         }
 
@@ -171,7 +173,7 @@ async def get_page_analysis(session_id: str, page_number: int):
         if page_number < 1 or page_number > session["total_pages"]:
             raise HTTPException(status_code=400, detail="رقم الصفحة غير صحيح")
 
-    # استخدم بيانات الجلسة ونفّذ تحليل الصورة عند الطلب دوماً
+        # استخدم بيانات الجلسة ونفّذ تحليل الصورة بحسب إعداد الجلسة فقط
         page_index = page_number - 1
         page_analysis = session["analysis"]["slides_analysis"][page_index]
         page_data = session["document_data"]["pages"][page_index]
@@ -180,18 +182,31 @@ async def get_page_analysis(session_id: str, page_number: int):
         original_text = page_analysis.get("original_text", "")
         cleaned_text = clean_and_format_text(original_text)
 
-        # تحليل الصورة عند الطلب مع كاش داخل الجلسة
-        image_analysis = ""
+        # احترام خيار تحليل الصور على مستوى الجلسة
+        effective_analyze = bool(session.get("analyze_images", False))
+
+        # كاش نتائج تحليل الصور
         cache = session.get("image_analysis_cache") or {}
-        if page_number in cache:
-            image_analysis = cache.get(page_number, "")
+
+        # إذا كان التحليل غير مفعّل للجلسة، لا تُرسل الصور
+        if not effective_analyze:
             return SlideAnalysisResponse(
                 page_number=page_number,
                 title=page_analysis.get("title", f"Page {page_number}"),
                 original_text=cleaned_text,
-                image_analysis=image_analysis,
+                image_analysis="",
             )
 
+        # إن كان التحليل مفعلاً: استخدم الكاش أولاً
+        if page_number in cache:
+            return SlideAnalysisResponse(
+                page_number=page_number,
+                title=page_analysis.get("title", f"Page {page_number}"),
+                original_text=cleaned_text,
+                image_analysis=cache.get(page_number, ""),
+            )
+
+        image_analysis = ""
         image_base64 = page_data.get("image_base64", "")
         language = session.get("language", "arabic")
 
