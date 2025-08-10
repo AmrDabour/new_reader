@@ -2,31 +2,293 @@ from typing import Optional
 from PIL import Image, ImageDraw, ImageFont
 from app.utils.arabic import is_arabic_text, reshape_arabic_text
 from app.utils.amiri_font import amiri_manager
+from app.config import get_settings
 import cv2
 import numpy as np
 import io, base64
+import re
+import pytesseract
+
+settings = get_settings()
+try:
+    # Align pytesseract with configured tesseract binary
+    pytesseract.pytesseract.tesseract_cmd = settings.tesseract_cmd
+except Exception:
+    pass
 
 class ImageService:
     def correct_image_orientation(self, image: Image.Image) -> Image.Image:
         """
-        Corrects image orientation by detecting edges and rotating the image.
+        Produce a scanner-like result:
+        - Detect document borders and apply perspective warp
+        - Deskew using dominant near-horizontal lines
+        - Auto-orient (0/90/180/270) so content is upright
+        - Fit to max size for UI while preserving aspect ratio
         """
-        img_cv = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-        gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
-        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-        edges = cv2.Canny(blurred, 50, 150, apertureSize=3)
-        lines = cv2.HoughLinesP(edges, 1, np.pi/180, threshold=100, minLineLength=100, maxLineGap=10)
-        
-        if lines is not None:
-            angles = [np.arctan2(l[0][3] - l[0][1], l[0][2] - l[0][0]) * 180 / np.pi for l in lines if l[0][2] - l[0][0] != 0]
-            if angles:
-                median_angle = np.median([angle for angle in angles if -45 <= angle <= 45])
-                h, w = img_cv.shape[:2]
-                center = (w // 2, h // 2)
-                M = cv2.getRotationMatrix2D(center, median_angle, 1.0)
-                rotated = cv2.warpAffine(img_cv, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
-                return Image.fromarray(cv2.cvtColor(rotated, cv2.COLOR_BGR2RGB))
-        return image
+        try:
+            img_cv = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+
+            # 1) Try to find document and warp perspective to top-down
+            warped = self._detect_and_warp_document(img_cv)
+            if warped is not None:
+                img_cv = warped
+
+            # 2) Deskew using Hough lines (near-horizontal)
+            img_cv = self._deskew_by_hough(img_cv)
+
+            # 3) Try OCR-based orientation (Tesseract OSD) for 0/90/180/270
+            osd_rotated = self._upright_by_tesseract_osd(img_cv)
+            if osd_rotated is not None:
+                img_cv = osd_rotated
+            else:
+                # Fallback: heuristic edge-projection based orientation
+                img_cv = self._auto_upright(img_cv)
+
+            # 3b) Disambiguate 0 vs 180 using OCR confidence (helps when text is upside down)
+            try:
+                base_score = self._ocr_score(img_cv)
+                flipped180 = cv2.rotate(img_cv, cv2.ROTATE_180)
+                flip_score = self._ocr_score(flipped180)
+                if flip_score > base_score + 5.0:  # only flip if clearly better
+                    img_cv = flipped180
+            except Exception:
+                pass
+
+            # 4) Convert and fit to max
+            pil_img = Image.fromarray(cv2.cvtColor(img_cv, cv2.COLOR_BGR2RGB))
+            return self._fit_to_max(pil_img)
+        except Exception:
+            # Fallback to safe resize only
+            return self._fit_to_max(image)
+
+    def _fit_to_max(self, image: Image.Image, max_size: Optional[int] = None) -> Image.Image:
+        """
+        Ensure the image fits within max_size (either width or height),
+        preserving aspect ratio. Uses settings.max_image_size by default.
+        """
+        try:
+            limit = max_size or getattr(settings, 'max_image_size', 1920)
+            if image.width > limit or image.height > limit:
+                img_copy = image.copy()
+                img_copy.thumbnail((limit, limit), Image.Resampling.LANCZOS)
+                return img_copy
+            return image
+        except Exception:
+            # Fallback: return original on any unexpected error
+            return image
+
+    # --- Scanner-like helpers ---
+    def _upright_by_tesseract_osd(self, img_bgr: np.ndarray) -> Optional[np.ndarray]:
+        """
+        Use Tesseract OSD to determine required rotation (0/90/180/270) and rotate accordingly.
+        Returns rotated image or None if OSD fails.
+        """
+        try:
+            # Convert to RGB PIL for pytesseract
+            rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+            pil = Image.fromarray(rgb)
+
+            # Upscale small images to help OSD
+            min_dim = min(pil.width, pil.height)
+            if min_dim < 800:
+                scale = 800 / float(min_dim)
+                new_size = (int(pil.width * scale), int(pil.height * scale))
+                pil = pil.resize(new_size, Image.Resampling.LANCZOS)
+
+            # Run OSD
+            osd = pytesseract.image_to_osd(pil, config='--psm 0')
+            # Parse rotation angle (degrees to rotate CCW to correct)
+            m = re.search(r"Rotate:\s*(\d+)", osd)
+            if not m:
+                m = re.search(r"Orientation in degrees:\s*(\d+)", osd)
+            if not m:
+                return None
+            angle = int(m.group(1)) % 360
+            if angle not in (0, 90, 180, 270):
+                return None
+
+            if angle == 0:
+                return img_bgr
+
+            # Tesseract's reported rotation can be interpreted differently across libs.
+            # Try both CCW and CW and choose the one with better horizontal structure score.
+            def rotate_ccw(src, a):
+                h, w = src.shape[:2]
+                M = cv2.getRotationMatrix2D((w // 2, h // 2), a, 1.0)
+                return cv2.warpAffine(src, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+
+            cand_a = rotate_ccw(img_bgr, angle)    # CCW by +angle
+            cand_b = rotate_ccw(img_bgr, -angle)   # CW by +angle
+
+            try:
+                s_a = self._orientation_score(cv2.cvtColor(cand_a, cv2.COLOR_BGR2GRAY))
+                s_b = self._orientation_score(cv2.cvtColor(cand_b, cv2.COLOR_BGR2GRAY))
+                return cand_a if s_a >= s_b else cand_b
+            except Exception:
+                return cand_a
+        except Exception:
+            return None
+
+    def _ocr_score(self, img_bgr: np.ndarray) -> float:
+        """Compute a simple OCR confidence score; higher is better."""
+        try:
+            rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+            pil = Image.fromarray(rgb)
+            data = pytesseract.image_to_data(pil, lang='ara+eng', output_type=pytesseract.Output.DICT)
+            confs = []
+            for txt, conf in zip(data.get('text', []), data.get('conf', [])):
+                try:
+                    c = float(conf)
+                except Exception:
+                    continue
+                if txt and txt.strip() and c >= 0:
+                    confs.append(c)
+            if not confs:
+                return 0.0
+            # Weighted score: average confidence times number of words
+            return float(np.mean(confs)) + 0.1 * len(confs)
+        except Exception:
+            return 0.0
+    def _detect_and_warp_document(self, img_bgr: np.ndarray) -> Optional[np.ndarray]:
+        """
+        Detect the largest 4-point contour (likely the document) and warp it to a top-down view.
+        Returns warped image or None if no good contour is found.
+        """
+        try:
+            orig = img_bgr
+            h, w = orig.shape[:2]
+            # Work on a smaller preview for speed
+            preview_max = 1000
+            scale = 1.0
+            if max(h, w) > preview_max:
+                scale = preview_max / float(max(h, w))
+                preview = cv2.resize(orig, (int(w * scale), int(h * scale)))
+            else:
+                preview = orig.copy()
+
+            gray = cv2.cvtColor(preview, cv2.COLOR_BGR2GRAY)
+            gray = cv2.GaussianBlur(gray, (5, 5), 0)
+            edges = cv2.Canny(gray, 50, 150)
+
+            contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+            contours = sorted(contours, key=cv2.contourArea, reverse=True)
+
+            img_area = preview.shape[0] * preview.shape[1]
+            for cnt in contours[:10]:  # check top 10 by area
+                peri = cv2.arcLength(cnt, True)
+                approx = cv2.approxPolyDP(cnt, 0.02 * peri, True)
+                if len(approx) == 4 and cv2.isContourConvex(approx):
+                    area = cv2.contourArea(approx)
+                    if area < 0.2 * img_area:  # ignore tiny quads
+                        continue
+                    pts = approx.reshape(4, 2).astype(np.float32)
+                    # Map back to original scale
+                    if scale != 1.0:
+                        pts = pts / scale
+                    warped = self._four_point_transform(orig, pts)
+                    return warped
+            return None
+        except Exception:
+            return None
+
+    def _order_points(self, pts: np.ndarray) -> np.ndarray:
+        # Order points: top-left, top-right, bottom-right, bottom-left
+        rect = np.zeros((4, 2), dtype="float32")
+        s = pts.sum(axis=1)
+        rect[0] = pts[np.argmin(s)]
+        rect[2] = pts[np.argmax(s)]
+
+        diff = np.diff(pts, axis=1)
+        rect[1] = pts[np.argmin(diff)]
+        rect[3] = pts[np.argmax(diff)]
+        return rect
+
+    def _four_point_transform(self, image: np.ndarray, pts: np.ndarray) -> np.ndarray:
+        rect = self._order_points(pts)
+        (tl, tr, br, bl) = rect
+
+        # compute the width of the new image
+        widthA = np.linalg.norm(br - bl)
+        widthB = np.linalg.norm(tr - tl)
+        maxWidth = int(max(widthA, widthB))
+
+        # compute the height of the new image
+        heightA = np.linalg.norm(tr - br)
+        heightB = np.linalg.norm(tl - bl)
+        maxHeight = int(max(heightA, heightB))
+
+        dst = np.array(
+            [
+                [0, 0],
+                [maxWidth - 1, 0],
+                [maxWidth - 1, maxHeight - 1],
+                [0, maxHeight - 1],
+            ],
+            dtype="float32",
+        )
+
+        M = cv2.getPerspectiveTransform(rect, dst)
+        warped = cv2.warpPerspective(image, M, (maxWidth, maxHeight), flags=cv2.INTER_CUBIC)
+        return warped
+
+    def _deskew_by_hough(self, img_bgr: np.ndarray) -> np.ndarray:
+        try:
+            gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+            gray = cv2.GaussianBlur(gray, (5, 5), 0)
+            edges = cv2.Canny(gray, 50, 150)
+            lines = cv2.HoughLinesP(edges, 1, np.pi / 180, threshold=120, minLineLength=100, maxLineGap=10)
+            if lines is not None and len(lines) > 0:
+                angles = []
+                for l in lines:
+                    x1, y1, x2, y2 = l[0]
+                    dx = x2 - x1
+                    dy = y2 - y1
+                    if dx == 0:
+                        continue
+                    angle = np.degrees(np.arctan2(dy, dx))
+                    if -45 <= angle <= 45:
+                        angles.append(angle)
+                if angles:
+                    median_angle = float(np.median(angles))
+                    if abs(median_angle) > 0.3:  # avoid tiny rotations
+                        h, w = img_bgr.shape[:2]
+                        M = cv2.getRotationMatrix2D((w // 2, h // 2), -median_angle, 1.0)
+                        img_bgr = cv2.warpAffine(
+                            img_bgr, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE
+                        )
+        except Exception:
+            pass
+        return img_bgr
+
+    def _orientation_score(self, gray: np.ndarray) -> float:
+        # score favoring clear horizontal structures (forms/text lines)
+        edges = cv2.Canny(gray, 50, 150)
+        row_profile = np.sum(edges, axis=1).astype(np.float32)
+        col_profile = np.sum(edges, axis=0).astype(np.float32)
+        row_var = float(np.var(row_profile))
+        col_var = float(np.var(col_profile))
+        # higher when horizontal structure dominates
+        return row_var / (col_var + 1e-6)
+
+    def _auto_upright(self, img_bgr: np.ndarray) -> np.ndarray:
+        try:
+            candidates = [
+                (0, img_bgr),
+                (90, cv2.rotate(img_bgr, cv2.ROTATE_90_CLOCKWISE)),
+                (180, cv2.rotate(img_bgr, cv2.ROTATE_180)),
+                (270, cv2.rotate(img_bgr, cv2.ROTATE_90_COUNTERCLOCKWISE)),
+            ]
+            best_score = -1.0
+            best_img = img_bgr
+            for angle, img in candidates:
+                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                score = self._orientation_score(gray)
+                if score > best_score:
+                    best_score = score
+                    best_img = img
+            return best_img
+        except Exception:
+            return img_bgr
 
     def create_annotated_image_for_gpt(self, image: Image.Image, fields_data: list, with_numbers=True):
         """

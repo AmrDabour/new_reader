@@ -42,6 +42,20 @@ pdf_merger = PDFMergerService()
 # Store PDF session data
 pdf_sessions = {}
 
+# Internal helper: save images for debugging/logging
+def _save_image_log(image: Image.Image, session_id: str, stage: str):
+    try:
+        base_dir = Path(__file__).resolve().parents[1]  # app/
+        logs_dir = base_dir / "logs" / "forms"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        ts = int(time.time())
+        filename = f"{ts}_{session_id}_{stage}.png"
+        path = logs_dir / filename
+        image.save(str(path), format="PNG")
+    except Exception:
+        # logging is best-effort only
+        pass
+
 @router.post("/check-file", response_model=ImageQualityResponse)
 async def check_file_quality(file: UploadFile = File(...)):
     """
@@ -54,71 +68,83 @@ async def check_file_quality(file: UploadFile = File(...)):
         if file.filename.lower().endswith('.pdf'):
             # Handle PDF by converting first page to image
             file_content = await file.read()
-            
+
             # Check PDF support
             if not pdf_processor.is_pdf_supported():
                 raise HTTPException(
-                    status_code=503, 
-                    detail="PDF processing not available. Please install PyMuPDF library"
+                    status_code=503,
+                    detail="PDF processing not available. Please install PyMuPDF library",
                 )
-            
+
             # Validate PDF
             is_valid, validation_message = pdf_processor.validate_pdf_for_forms(file_content)
             if not is_valid:
                 raise HTTPException(status_code=400, detail=validation_message)
-            
+
             # Convert first page to image
             try:
                 pages_data = pdf_processor.convert_pdf_to_images(file_content)
                 if not pages_data:
                     raise HTTPException(status_code=400, detail="Could not convert PDF to image")
-                
+
                 # Get first page as image
                 first_page = pages_data[0]
                 image = first_page["image"]
-                
+
             except Exception as e:
                 raise HTTPException(status_code=400, detail=f"Failed to process PDF: {str(e)}")
         else:
             # Handle regular image files
             image = Image.open(io.BytesIO(await file.read())).convert("RGB")
-        
+
+        # Correct orientation and fit to max (so quality checks are on the improved image)
+        corrected_image = image_service.correct_image_orientation(image)
+
         # Create new session
         session_id = session_service.create_session()
-        
+
         # Check image quality and detect language automatically
-        language_direction, quality_good, quality_message = gemini_service.detect_language_and_quality(image)
-        
+        language_direction, quality_good, quality_message = gemini_service.detect_language_and_quality(corrected_image)
+
         # Simple form explanation based on basic image analysis (no YOLO or heavy processing)
         form_explanation = ""
         if quality_good:
             try:
                 # Get quick form explanation only (no field details)
-                form_explanation = gemini_service.get_quick_form_explanation(image, language_direction) or ""
-            except Exception as e:
+                form_explanation = (
+                    gemini_service.get_quick_form_explanation(corrected_image, language_direction) or ""
+                )
+            except Exception:
                 # If form explanation fails, continue without it
                 pass
-        
+
         # Store detected language in session
         try:
-            session_service.update_session(session_id, 'pdf_mode', file.filename.lower().endswith('.pdf'))
-            session_service.update_session(session_id, 'language_direction', language_direction)
-            session_service.update_session(session_id, 'image_width', image.width)
-            session_service.update_session(session_id, 'image_height', image.height)
+            session_service.update_session(session_id, "pdf_mode", file.filename.lower().endswith(".pdf"))
+            session_service.update_session(session_id, "language_direction", language_direction)
+            session_service.update_session(session_id, "image_width", corrected_image.width)
+            session_service.update_session(session_id, "image_height", corrected_image.height)
+            # Store corrected image for reuse in analyze step
+            img_buffer = io.BytesIO()
+            corrected_image.save(img_buffer, format="PNG")
+            corrected_image_b64 = base64.b64encode(img_buffer.getvalue()).decode("utf-8")
+            session_service.update_session(session_id, "converted_image_b64", corrected_image_b64)
             if form_explanation:
-                session_service.update_session(session_id, 'form_explanation', form_explanation)
-        except Exception as session_error:
+                session_service.update_session(session_id, "form_explanation", form_explanation)
+            # Save corrected image to logs folder
+            _save_image_log(corrected_image, session_id, "corrected")
+        except Exception:
             # Continue without session updates if there's an error
             pass
-        
+
         return ImageQualityResponse(
             language_direction=language_direction,
             quality_good=quality_good,
             quality_message=quality_message,
-            image_width=image.width,
-            image_height=image.height,
+            image_width=corrected_image.width,
+            image_height=corrected_image.height,
             session_id=session_id,
-            form_explanation=form_explanation
+            form_explanation=form_explanation,
         )
 
     except HTTPException:
@@ -126,109 +152,81 @@ async def check_file_quality(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An internal error occurred: {e}")
 
-# Keep the old endpoint for backward compatibility
-@router.post("/check-image", response_model=ImageQualityResponse)
-async def check_image_quality(file: UploadFile = File(...)):
-    """
-    Check image quality and detect language direction automatically.
-    Creates a session to store detected language for future use.
-    (Legacy endpoint - use /check-file for both images and PDFs)
-    """
-    return await check_file_quality(file)
+# note: legacy /check-image endpoint removed; use /check-file for images and PDFs
 
 @router.post("/analyze-form", response_model=FormAnalysisResponse)
-async def analyze_form(file: UploadFile = File(...), session_id: str = Form(None), language_direction: str = Form(None)):
+async def analyze_form(session_id: str = Form(...), language_direction: str = Form(None)):
     """
-    Main endpoint to analyze a form from an uploaded file.
-    Can use session_id to get previously detected language, or manual language_direction.
-    Handles both images and PDFs (converts PDF first page to image).
+    Analyze a previously checked image using the session's corrected image.
+    Requires a valid session_id created by /form/check-file.
     """
     try:
-        # 1. Load and process file (image or PDF)
-        if file.filename.lower().endswith('.pdf'):
-            # Handle PDF by converting first page to image
-            file_content = await file.read()
-            
-            # Check PDF support
-            if not pdf_processor.is_pdf_supported():
-                raise HTTPException(status_code=503, detail="PDF processing not available")
-            
-            # Convert first page to image
-            try:
-                pages_data = pdf_processor.convert_pdf_to_images(file_content)
-                if not pages_data:
-                    raise HTTPException(status_code=400, detail="Could not convert PDF to image")
-                
-                # Get first page as image
-                first_page = pages_data[0]
-                image = first_page["image"]
-                
-            except Exception as e:
-                raise HTTPException(status_code=400, detail=f"Failed to process PDF: {str(e)}")
-        else:
-            # Handle regular image files
-            image = Image.open(io.BytesIO(await file.read())).convert("RGB")
-        
-        # 2. Correct image orientation
-        corrected_image = image_service.correct_image_orientation(image)
-        
-        # 3. Determine language to use
-        final_language = language_direction  # Manual selection has priority
-        
-        if not final_language and session_id:
-            # Try to get language from session
+        # 1) Load corrected image from session
+        try:
             session_data = session_service.get_session(session_id)
-            if session_data and 'language_direction' in session_data:
-                final_language = session_data['language_direction']
-        
-        if not final_language:
-            # Fallback to default
-            final_language = "rtl"
-        
-        # 4. Detect fields using YOLO with determined language
+        except Exception:
+            session_data = None
+        if not session_data or not session_data.get("converted_image_b64"):
+            raise HTTPException(
+                status_code=400,
+                detail="No image found in session. Please call /form/check-file first.",
+            )
+
+        try:
+            img_bytes = base64.b64decode(session_data["converted_image_b64"])
+            corrected_image = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to load session image: {str(e)}")
+
+        # 2) Determine language
+        final_language = language_direction or session_data.get("language_direction") or "rtl"
+
+        # Save the analysis input image to logs
+        _save_image_log(corrected_image, session_id, "analysis_input")
+
+        # 3) Detect fields using YOLO
         fields_data = yolo_service.detect_fields_with_language(corrected_image, final_language)
         if not fields_data:
             raise HTTPException(status_code=400, detail="No fillable fields detected.")
 
-        # 5. Create annotated image for Gemini (with numbers)
-        gpt_image = image_service.create_annotated_image_for_gpt(corrected_image, fields_data, with_numbers=True)
-        
-        # 6. Get form fields from Gemini with determined language
+        # 4) Create annotated image for Gemini
+        gpt_image = image_service.create_annotated_image_for_gpt(
+            corrected_image, fields_data, with_numbers=True
+        )
+
+        # 5) Get form fields from Gemini
         gpt_fields_raw = gemini_service.get_form_fields_only(gpt_image, final_language)
-            
         if not gpt_fields_raw:
             raise HTTPException(status_code=500, detail="AI model failed to extract form details.")
 
-        # 7. Filter valid fields and combine results
+        # 6) Combine results
         gpt_fields = [field for field in gpt_fields_raw if field.get("valid", False)]
         final_fields = image_service.combine_yolo_and_gpt_results(fields_data, gpt_fields)
 
-        # 8. Create or update session for this analysis
-        if not session_id:
-            session_id = session_service.create_session()
-        
-        session_service.update_session(session_id, 'language_direction', final_language)
-        session_service.update_session(session_id, 'analysis_completed', True)
+        # 7) Update session
+        session_service.update_session(session_id, "language_direction", final_language)
+        session_service.update_session(session_id, "analysis_completed", True)
 
-        # 9. Store the converted image (especially important for PDF files)
-        # Convert the corrected image to base64 for consistent handling
+        # 8) Ensure image is stored
         try:
             img_buffer = io.BytesIO()
             corrected_image.save(img_buffer, format="PNG")
-            corrected_image_b64 = base64.b64encode(img_buffer.getvalue()).decode('utf-8')
-            session_service.update_session(session_id, 'converted_image_b64', corrected_image_b64)
-        except Exception as img_save_error:
+            corrected_image_b64 = base64.b64encode(img_buffer.getvalue()).decode("utf-8")
+            session_service.update_session(session_id, "converted_image_b64", corrected_image_b64)
+        except Exception:
             pass
 
         return FormAnalysisResponse(
             fields=final_fields,
-            form_explanation="",  # No explanation in analyze-form, only in check-file
+            form_explanation="",
             language_direction=final_language,
             image_width=corrected_image.width,
             image_height=corrected_image.height,
-            session_id=session_id
+            session_id=session_id,
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An internal error occurred: {e}")
 
