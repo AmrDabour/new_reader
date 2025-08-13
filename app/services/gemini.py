@@ -624,25 +624,25 @@ Respond directly and helpfully in 2-4 sentences only. Do not use markdown format
                         "OTHER",
                     ] or finish_reason in ["1", "2", "3"]:
                         fallback_msg = (
-                            "عذراً، لم نتمكن من تحليل النموذج بسبب قيود النظام."
+                            "ملخص سريع: تبدو هذه صورة لنموذج. سنرشدك لاكتشاف الحقول وتعبئتها. يمكنك المتابعة إلى التحليل الآن."
                             if language == "rtl"
-                            else "Sorry, unable to analyze the form due to system restrictions."
+                            else "Quick summary: This appears to be a form. We'll detect the fields and help you fill them. You can proceed to analysis now."
                         )
                         return fallback_msg
 
                     # Check if not STOP (4) or MAX_TOKENS (3)
                     if finish_reason not in ["STOP", "4", "MAX_TOKENS", "3"]:
                         fallback_msg = (
-                            "فشل في تحليل النموذج."
+                            "ملخص سريع: هذه استمارة، سنكتشف أماكن الكتابة ونوجهك خطوة بخطوة."
                             if language == "rtl"
-                            else "Failed to analyze the form."
+                            else "Quick summary: This is a form; we'll detect the fields and guide you step by step."
                         )
                         return fallback_msg
                 else:
                     fallback_msg = (
-                        "لم نتمكن من تحليل النموذج."
+                        "ملخص سريع: تبدو هذه صورة لنموذج. يمكنك المتابعة للتحليل لاستخراج الحقول."
                         if language == "rtl"
-                        else "Unable to analyze the form."
+                        else "Quick summary: This looks like a form. You can proceed to analysis to extract fields."
                     )
                     return fallback_msg
 
@@ -650,9 +650,9 @@ Respond directly and helpfully in 2-4 sentences only. Do not use markdown format
                 response_text = getattr(response, "text", None)
                 if not response_text:
                     fallback_msg = (
-                        "لم نتمكن من الحصول على نتيجة التحليل."
+                        "ملخص سريع: هذه استمارة. سنقوم بالتعرف على الحقول عند بدء التحليل."
                         if language == "rtl"
-                        else "Could not get analysis result."
+                        else "Quick summary: This is a form. We'll recognize the fields when you start analysis."
                     )
                     return fallback_msg
 
@@ -662,15 +662,19 @@ Respond directly and helpfully in 2-4 sentences only. Do not use markdown format
 
             except Exception:
                 fallback_msg = (
-                    "خطأ في الحصول على النتيجة."
+                    "ملخص سريع: هذه صورة لنموذج. سنقوم بشرح الحقول أثناء التحليل."
                     if language == "rtl"
-                    else "Error getting result."
+                    else "Quick summary: This is a form image. We'll explain the fields during analysis."
                 )
                 return fallback_msg
 
             if not response or not response.text:
                 logger.warning("Empty response from Gemini for form explanation")
-                return ""
+                return (
+                    "ملخص سريع: هذه استمارة. يمكنك المتابعة للتحليل لاستخراج الحقول."
+                    if language == "rtl"
+                    else "Quick summary: This is a form. You can proceed to analysis to extract fields."
+                )
 
             explanation = self.remove_markdown_formatting(response.text.strip())
             logger.info(f"Form explanation generated: {explanation[:100]}...")
@@ -678,7 +682,11 @@ Respond directly and helpfully in 2-4 sentences only. Do not use markdown format
 
         except Exception as e:
             logger.error(f"Error generating quick form explanation: {e}")
-            return ""
+            return (
+                "ملخص سريع: تبدو هذه استمارة. سنرشدك لاكتشاف الحقول وتعبئتها عند بدء التحليل."
+                if language == "rtl"
+                else "Quick summary: This looks like a form. We'll guide you to detect and fill fields when you start analysis."
+            )
 
     # =============================================================================
     # PPT & PDF READER METHODS

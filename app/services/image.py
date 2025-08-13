@@ -1,5 +1,5 @@
-from typing import Optional
-from PIL import Image, ImageDraw, ImageFont
+from typing import Optional, Tuple
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 from app.utils.arabic import is_arabic_text, reshape_arabic_text
 from app.utils.amiri_font import amiri_manager
 from app.config import get_settings
@@ -8,6 +8,7 @@ import numpy as np
 import io, base64
 import re
 import pytesseract
+import logging
 
 settings = get_settings()
 try:
@@ -19,42 +20,32 @@ except Exception:
 class ImageService:
     def correct_image_orientation(self, image: Image.Image) -> Image.Image:
         """
-        Produce a scanner-like result:
-        - Detect document borders and apply perspective warp
-        - Deskew using dominant near-horizontal lines
-        - Auto-orient (0/90/180/270) so content is upright
-        - Fit to max size for UI while preserving aspect ratio
+        Rotate-only orientation correction to avoid any edge artifacts:
+        - Honor EXIF orientation
+        - Try 0/90/180/270 and pick the best upright
+        - No deskew, no perspective warp, no filtering
+        - Fit to max size while preserving aspect ratio
         """
         try:
-            img_cv = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-
-            # 1) Try to find document and warp perspective to top-down
-            warped = self._detect_and_warp_document(img_cv)
-            if warped is not None:
-                img_cv = warped
-
-            # 2) Deskew using Hough lines (near-horizontal)
-            img_cv = self._deskew_by_hough(img_cv)
-
-            # 3) Try OCR-based orientation (Tesseract OSD) for 0/90/180/270
-            osd_rotated = self._upright_by_tesseract_osd(img_cv)
-            if osd_rotated is not None:
-                img_cv = osd_rotated
-            else:
-                # Fallback: heuristic edge-projection based orientation
-                img_cv = self._auto_upright(img_cv)
-
-            # 3b) Disambiguate 0 vs 180 using OCR confidence (helps when text is upside down)
+            # Honor camera EXIF orientation first
             try:
-                base_score = self._ocr_score(img_cv)
-                flipped180 = cv2.rotate(img_cv, cv2.ROTATE_180)
-                flip_score = self._ocr_score(flipped180)
-                if flip_score > base_score + 5.0:  # only flip if clearly better
-                    img_cv = flipped180
+                image = ImageOps.exif_transpose(image)
             except Exception:
                 pass
 
-            # 4) Convert and fit to max
+            img_cv = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+
+            # Smart upright selection: try 0/90/180/270 and pick the best by OCR+structure
+            # Using cv2.rotate ensures exact 90-degree rotations without introducing dark borders.
+            img_cv, chosen_angle, details = self._choose_best_upright(img_cv)
+            try:
+                logging.getLogger(__name__).info(
+                    f"Upright angle chosen: {chosen_angle} deg | details={details}"
+                )
+            except Exception:
+                pass
+
+            # Convert and fit to max
             pil_img = Image.fromarray(cv2.cvtColor(img_cv, cv2.COLOR_BGR2RGB))
             return self._fit_to_max(pil_img)
         except Exception:
@@ -78,10 +69,10 @@ class ImageService:
             return image
 
     # --- Scanner-like helpers ---
-    def _upright_by_tesseract_osd(self, img_bgr: np.ndarray) -> Optional[np.ndarray]:
+    def _upright_by_tesseract_osd(self, img_bgr: np.ndarray) -> Tuple[Optional[np.ndarray], Optional[int]]:
         """
         Use Tesseract OSD to determine required rotation (0/90/180/270) and rotate accordingly.
-        Returns rotated image or None if OSD fails.
+        Returns (rotated image, angle) or (None, None) if OSD fails.
         """
         try:
             # Convert to RGB PIL for pytesseract
@@ -102,13 +93,13 @@ class ImageService:
             if not m:
                 m = re.search(r"Orientation in degrees:\s*(\d+)", osd)
             if not m:
-                return None
+                return None, None
             angle = int(m.group(1)) % 360
             if angle not in (0, 90, 180, 270):
-                return None
+                return None, None
 
             if angle == 0:
-                return img_bgr
+                return img_bgr, 0
 
             # Tesseract's reported rotation can be interpreted differently across libs.
             # Try both CCW and CW and choose the one with better horizontal structure score.
@@ -123,11 +114,12 @@ class ImageService:
             try:
                 s_a = self._orientation_score(cv2.cvtColor(cand_a, cv2.COLOR_BGR2GRAY))
                 s_b = self._orientation_score(cv2.cvtColor(cand_b, cv2.COLOR_BGR2GRAY))
-                return cand_a if s_a >= s_b else cand_b
+                chosen = cand_a if s_a >= s_b else cand_b
+                return chosen, angle
             except Exception:
-                return cand_a
+                return cand_a, angle
         except Exception:
-            return None
+            return None, None
 
     def _ocr_score(self, img_bgr: np.ndarray) -> float:
         """Compute a simple OCR confidence score; higher is better."""
@@ -289,6 +281,77 @@ class ImageService:
             return best_img
         except Exception:
             return img_bgr
+
+    def _choose_best_upright(self, img_bgr: np.ndarray) -> Tuple[np.ndarray, int, dict]:
+        """
+        Try 0/90/180/270 and pick the one with the highest composite score:
+        composite = ocr_score + k * orientation_score. Prefer 0 over 180 on near ties.
+        Returns (best_image, angle, details)
+        """
+        try:
+            # Prepare candidates
+            candidates = [
+                (0, img_bgr),
+                (90, cv2.rotate(img_bgr, cv2.ROTATE_90_CLOCKWISE)),
+                (180, cv2.rotate(img_bgr, cv2.ROTATE_180)),
+                (270, cv2.rotate(img_bgr, cv2.ROTATE_90_COUNTERCLOCKWISE)),
+            ]
+
+            results = []
+            k = 0.5  # weight for structure score
+
+            # Downscale to speed OCR scoring if very large
+            def downscale(bgr: np.ndarray, limit: int = 1200) -> np.ndarray:
+                h, w = bgr.shape[:2]
+                maxdim = max(h, w)
+                if maxdim <= limit:
+                    return bgr
+                scale = limit / float(maxdim)
+                return cv2.resize(bgr, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
+
+            for angle, img in candidates:
+                img_small = downscale(img)
+                try:
+                    ocr = self._ocr_score(img_small)
+                except Exception:
+                    ocr = 0.0
+                try:
+                    orient = self._orientation_score(cv2.cvtColor(img_small, cv2.COLOR_BGR2GRAY))
+                except Exception:
+                    orient = 0.0
+                composite = ocr + k * orient
+                results.append({"angle": angle, "ocr": ocr, "orient": orient, "score": composite})
+
+            # Pick best by score; tie-breakers: prefer angle==0, then prefer angle!=180
+            results_sorted = sorted(
+                results,
+                key=lambda r: (r["score"], 1 if r["angle"] == 0 else 0, 1 if r["angle"] != 180 else 0),
+                reverse=True,
+            )
+            best = results_sorted[0]
+
+            # If 180 is best but within a small margin to 0, prefer 0 to avoid upside-down
+            if best["angle"] == 180:
+                zero = next((r for r in results if r["angle"] == 0), None)
+                if zero and (best["score"] - zero["score"]) < 2.0:
+                    best = zero
+
+            chosen_angle = int(best["angle"])
+            # Return the matching image
+            if chosen_angle == 0:
+                best_img = candidates[0][1]
+            elif chosen_angle == 90:
+                best_img = candidates[1][1]
+            elif chosen_angle == 180:
+                best_img = candidates[2][1]
+            else:
+                best_img = candidates[3][1]
+
+            details = {"candidates": results}
+            return best_img, chosen_angle, details
+        except Exception:
+            # Fallback to orientation-only upright
+            return self._auto_upright(img_bgr), 0, {"fallback": True}
 
     def create_annotated_image_for_gpt(self, image: Image.Image, fields_data: list, with_numbers=True):
         """

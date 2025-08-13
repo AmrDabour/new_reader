@@ -118,6 +118,24 @@ async def check_file_quality(file: UploadFile = File(...)):
                 # If form explanation fails, continue without it
                 pass
 
+        # Always provide a friendly fallback if explanation is empty or an error-like message
+        def _friendly_fallback(lang: str) -> str:
+            return (
+                "ملخص سريع: هذه استمارة وسنقوم بالتعرف على الحقول ومساعدتك في تعبئتها عند بدء التحليل."
+                if lang == "rtl"
+                else "Quick summary: This is a form; we'll detect the fields and help you fill them when you start analysis."
+            )
+
+        error_like = {
+            "خطأ في الحصول على النتيجة.",
+            "Error getting result.",
+            "Unable to analyze the form due to system restrictions.",
+            "Unable to analyze the form.",
+            "Failed to analyze the form.",
+        }
+        if not form_explanation or form_explanation.strip() in error_like:
+            form_explanation = _friendly_fallback(language_direction)
+
         # Store detected language in session
         try:
             session_service.update_session(session_id, "pdf_mode", file.filename.lower().endswith(".pdf"))
@@ -418,6 +436,61 @@ async def pdf_page(request: PDFPageRequest):
 @router.get("/ping")
 def ping():
     return {"msg": "pong"}
+
+@router.get("/preview-analyze-image")
+async def preview_analyze_image(session_id: str, stage: str = "corrected", language_direction: str = None):
+    """
+    Preview the exact image used by analyze:
+    - stage=corrected (default): returns the corrected image stored in session
+    - stage=annotated|gpt: runs YOLO and returns the numbered image sent to AI
+    """
+    try:
+        # Load from session
+        try:
+            session_data = session_service.get_session(session_id)
+        except Exception:
+            session_data = None
+        if not session_data or not session_data.get("converted_image_b64"):
+            raise HTTPException(status_code=404, detail="No image found in session. Call /form/check-file first.")
+
+        img_bytes = base64.b64decode(session_data["converted_image_b64"])
+        corrected_image = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+
+        stage_norm = (stage or "corrected").lower()
+        if stage_norm in ("annotated", "gpt", "numbered"):
+            final_language = language_direction or session_data.get("language_direction") or "rtl"
+            fields_data = yolo_service.detect_fields_with_language(corrected_image, final_language)
+            if fields_data:
+                out_img = image_service.create_annotated_image_for_gpt(
+                    corrected_image, fields_data, with_numbers=True
+                )
+            else:
+                out_img = corrected_image
+        else:
+            out_img = corrected_image
+
+        buf = io.BytesIO()
+        out_img.save(buf, format="PNG")
+        img_out = buf.getvalue()
+
+        # Optional: save a log copy
+        try:
+            _save_image_log(out_img, session_id, f"preview_{stage_norm}")
+        except Exception:
+            pass
+
+        headers = {
+            "X-Session-ID": session_id,
+            "X-Stage": stage_norm,
+            "X-Width": str(out_img.width),
+            "X-Height": str(out_img.height),
+        }
+        return Response(content=img_out, media_type="image/png", headers=headers)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate preview: {str(e)}")
 
 # =============================================================================
 # PDF FORM ANALYSIS ENDPOINTS
