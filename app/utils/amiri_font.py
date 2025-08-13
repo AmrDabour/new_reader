@@ -1,89 +1,67 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-تكوين خط Amiri للنصوص العربية
-Amiri font configuration for Arabic text
+تهيئة خط عربي للنصوص العربية (بدون الاعتماد على Amiri)
+Arabic font setup for Arabic text without relying on Amiri.
 """
 
 from PIL import ImageFont
 import arabic_reshaper
 from bidi.algorithm import get_display
 from typing import Optional
+import os
 
 class AmiriFontManager:
-    """مدير خط Amiri للنصوص العربية"""
+    """مدير خطوط عربية: يعتمد مباشرة على خط متوفر (بدون البحث عن Amiri)."""
+
+    # نعتمد مباشرة على خط متوفر في معظم توزيعات لينكس
+    PREFERRED_ARABIC_FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
     
-    # مسارات خط Amiri المحتملة (حسب تثبيت fonts-amiri في Docker)
-    AMIRI_FONT_PATHS = [
-        "/usr/share/fonts/truetype/amiri/amiri-regular.ttf",
-        "/usr/share/fonts/truetype/amiri/Amiri-Regular.ttf",
-        "/usr/share/fonts/opentype/amiri/Amiri-Regular.otf", 
-        "/usr/share/fonts/TTF/Amiri-Regular.ttf",
-        "/usr/share/fonts/opentype/amiri/amiri-regular.otf"
-    ]
-    
-    # خطوط احتياطية للنصوص العربية
+    # قائمة احتياطية بسيطة عند الحاجة
     ARABIC_FALLBACK_FONTS = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         "/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf",
         "/usr/share/fonts/opentype/noto/NotoSansArabic-Regular.ttf",
         "/usr/share/fonts/truetype/fonts-arabic/Scheherazade-Regular.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
     ]
     
     def __init__(self):
-        self._amiri_font_cache = {}
-        self._fallback_font_cache = {}
-        self._amiri_available = None
+        self._font_cache = {}
         self._best_arabic_font_path = None
+        self._init_best_font_path()
     
     def is_amiri_available(self) -> bool:
-        """التحقق من توفر خط Amiri"""
-        if self._amiri_available is not None:
-            return self._amiri_available
-            
-        for font_path in self.AMIRI_FONT_PATHS:
-            try:
-                ImageFont.truetype(font_path, 16)
-                self._amiri_available = True
-                self._best_arabic_font_path = font_path
-                print(f"🎯 تم العثور على خط Amiri: {font_path}")
-                return True
-            except (IOError, OSError):
-                continue
-        
-        self._amiri_available = False
-        print("⚠️ خط Amiri غير متوفر، سيتم البحث عن خط عربي بديل")
-        
-        # البحث عن خط عربي بديل
-        for font_path in self.ARABIC_FALLBACK_FONTS:
-            try:
-                ImageFont.truetype(font_path, 16)
-                self._best_arabic_font_path = font_path
-                print(f"✅ تم العثور على خط عربي بديل: {font_path}")
-                break
-            except (IOError, OSError):
-                continue
-        
+        """يحافظ على التوافيق: لا نعتمد على Amiri إطلاقاً."""
         return False
+
+    def _init_best_font_path(self) -> None:
+        """تعيين أفضل مسار للخط العربي المتاح بصمت (بدون طباعة)."""
+        candidates = [self.PREFERRED_ARABIC_FONT] + [p for p in self.ARABIC_FALLBACK_FONTS if p != self.PREFERRED_ARABIC_FONT]
+        for font_path in candidates:
+            try:
+                ImageFont.truetype(font_path, 16)
+                self._best_arabic_font_path = font_path
+                return
+            except (IOError, OSError):
+                continue
+        # كحل أخير: اترك المسار None وسيتم استخدام الخط الافتراضي لاحقاً
     
     def get_arabic_font(self, size: int = 16) -> ImageFont.FreeTypeFont:
         """الحصول على خط عربي (Amiri أو بديل) بحجم محدد"""
         
         # التحقق من الذاكرة المؤقتة أولاً
         cache_key = f"{size}"
-        if cache_key in self._amiri_font_cache:
-            return self._amiri_font_cache[cache_key]
-        
-        if not self.is_amiri_available() and self._best_arabic_font_path is None:
-            print("⚠️ لا توجد خطوط عربية متوفرة، سيتم استخدام الخط الافتراضي")
+        if cache_key in self._font_cache:
+            return self._font_cache[cache_key]
+
+        if self._best_arabic_font_path is None:
             return ImageFont.load_default()
-        
+
         try:
             font = ImageFont.truetype(self._best_arabic_font_path, size)
-            self._amiri_font_cache[cache_key] = font
+            self._font_cache[cache_key] = font
             return font
         except (IOError, OSError):
-            print(f"❌ فشل في تحميل الخط: {self._best_arabic_font_path}")
             return ImageFont.load_default()
     
     def process_arabic_text(self, text: str) -> str:
@@ -103,20 +81,18 @@ class AmiriFontManager:
             # للتجربة: استخدم get_display مع تحديد اتجاه من اليمين إلى اليسار صراحةً
             display_text = reshaped_text  # بدون get_display
             
-            print(f"📝 معالجة النص العربي: '{text}' -> '{reshaped_text}'")
             return reshaped_text
             
         except Exception as e:
-            print(f"⚠️ فشل في معالجة النص العربي: {e}")
             return text
     
     def get_font_info(self) -> dict:
         """الحصول على معلومات الخط المستخدم"""
         return {
-            "amiri_available": self.is_amiri_available(),
+            "amiri_available": False,
             "best_font_path": self._best_arabic_font_path,
-            "font_name": "Amiri" if self._amiri_available else "Arabic Fallback",
-            "cached_sizes": list(self._amiri_font_cache.keys())
+            "font_name": "Arabic Fallback",
+            "cached_sizes": list(self._font_cache.keys())
         }
 
 # إنشاء مثيل عام للاستخدام في التطبيق
@@ -137,25 +113,7 @@ def is_amiri_font_available() -> bool:
     return amiri_manager.is_amiri_available()
 
 if __name__ == "__main__":
-    # اختبار سريع
-    print("🧪 اختبار مدير خط Amiri")
-    print("=" * 40)
-    
+    # اختبار سريع (صامت)
     manager = AmiriFontManager()
     info = manager.get_font_info()
-    
-    print(f"معلومات الخط:")
-    print(f"  - متوفر Amiri: {info['amiri_available']}")
-    print(f"  - أفضل خط: {info['best_font_path']}")
-    print(f"  - اسم الخط: {info['font_name']}")
-    
-    # اختبار معالجة نص
-    test_text = "مرحباً بكم في خط أميري الجميل"
-    processed = manager.process_arabic_text(test_text)
-    print(f"\nاختبار النص:")
-    print(f"  - الأصلي: {test_text}")
-    print(f"  - المعالج: {processed}")
-    
-    # اختبار تحميل خط
-    font = manager.get_arabic_font(24)
-    print(f"  - تم تحميل خط بحجم 24: {type(font)}")
+    print(info)
