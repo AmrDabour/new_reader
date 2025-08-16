@@ -71,33 +71,24 @@ class GeminiService:
             img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
 
             prompt = """
-Analyze this image in two steps:
+Analyze the uploaded image and respond ONLY in this JSON format:
 
-1. **First: Detect Language** - Determine if this form is primarily in Arabic (rtl) or English/other (ltr)
-
-2. **Then: Respond in the SAME detected language** with quality assessment
-
-**Quality Assessment Guidelines:**
-- ACCEPTABLE: Minor lighting issues, slight tilt, readable text
-- NEEDS IMPROVEMENT: Significantly cropped, very blurry text, major rotation, very poor lighting
-- Focus on whether form fields can be detected and text can be read
-
-**Response Format - JSON only:**
-
-```json
 {
   "language_direction": "rtl" or "ltr", 
   "quality_good": true or false,
   "quality_message": "Brief assessment and tips in detected language"
 }
-```
 
-**Example Messages:**
-- Arabic form with minor issues: "الصورة مقبولة للتحليل. نصيحة: حاول تحسين الإضاءة قليلاً"
-- English form with problems: "Image needs improvement. Try: better lighting and straighten the form"
-- Good quality: "الصورة واضحة ومناسبة للتحليل" / "Image is clear and suitable for analysis"
+Quality rules:
+- ACCEPTABLE (ok=true): Text mostly readable, form fields visible, minor lighting/tilt OK.
+- NEEDS IMPROVEMENT (ok=false): Cropped too much, very blurry, major rotation, very dark.
 
-Keep message concise and helpful. Don't be overly strict on minor imperfections.
+Examples:
+Arabic good: "الصورة واضحة ومناسبة للتحليل"
+Arabic bad: "الصورة تحتاج تحسين. حاول ضبط الإضاءة وتعديل الميلان"
+English good: "Image is clear and suitable for analysis"
+English bad: "Image needs improvement. Try: better lighting and straighten the form"
+
 """
 
             image_part = {"mime_type": "image/png", "data": img_str}
@@ -210,61 +201,10 @@ Keep message concise and helpful. Don't be overly strict on minor imperfections.
             # --- Language-Specific Prompts ---
             if language == "rtl":
                 prompt = """
-أنت مساعد ذكي متخصص في تحليل النماذج، ومصمم خصيصًا لمساعدة مستخدم كفيف. هدفك الأساسي هو تقديم فهم واضح وموجز للنموذج.
-
-1.  **تحليل وتلخيص:** اقرأ النموذج بالكامل لفهم غرضه. بعد ذلك، قم بإنشاء ملخص مفيد (عدة جمل) **باللغة العربية فقط**. يجب أن يحقق الملخص توازنًا بين الإيجاز وتوفير المعلومات الهامة. يجب أن يتضمن الملخص:
-    - الغرض الرئيسي للنموذج (مثال: "هذا طلب للحصول على منحة دراسية...").
-    - أي جهات أو مؤسسات أو شروط رئيسية مذكورة بالفعل في النص (مثال: "...مقدمة من ITIDA و NTI..."، "...تتضمن شرطًا جزائيًا في حالة الغياب...").
-    - الفئات العامة للمعلومات التي سيحتاج المستخدم إلى تقديمها (مثال: "...سيُطلب منك تقديم تفاصيل شخصية ومعلومات الاتصال وبياناتك الأكاديمية.").
-    - الهدف هو إعطاء المستخدم إحساسًا جيدًا بسياق النموذج دون قراءة كل كلمة فيه.
-
-2.  **Identify fillable fields:** For each numbered box (1، 2، 3، إلخ) represents a place for user input:
-    - ابحث عن التسمية النصية أو الوصف المقابل بالقرب منه.
-    - **حدد ما إذا كان المربع صالحًا بناءً على السياق:** قم بتحليل التسمية والنص المحيط لفهم الغرض من الحقل.
-        - Field is considered **invalid** إذا كان النص يشير إلى أنه "for official use only"، or example, or just instruction، or if it already contains specific value.
-        - Field is considered **صالحًا** إذا كان غرضه هو الحصول على معلومات من المستخدم بوضوح (مثل: "الاسم"، "العنوان"، "التوقيع").
-        - **مربعات الاختيار:** تكون مربعات الاختيار **صالحة** دائمًا تقريبًا. اجعلها invalidة فقط إذا لم تكن عنصرًا تفاعليًا بشكل واضح.
-    - احتفظ بنص التسمية كما هو مكتوب في النموذج تمامًا، دون ترجمة.
-
-3.  **تنسيق الإخراج:** يجب أن يكون الإخراج كائن JSON واحد فقط، بدون أي نص قبله أو بعده.
-
-    ```json
-    {
-      "explanation": "ملخصك المفيد والموجز باللغة العربية.",
-      "fields": [
-        { "id": 1, "label": "نص المربع 1", "valid": true },
-        { "id": 2, "label": "نص المربع 2", "valid": false }
-      ]
-    }
-    ```"""
+                """
             else:
-                prompt = f"""You are an intelligent form assistant, specifically designed to help a visually impaired user. Your primary goal is to provide a clear and concise understanding of the form.
-
-1.  **Analyze and Summarize:** Read the entire form to understand its purpose. Then, generate a helpful summary (a few sentences) in **{lang_name} only**. Achieve a balance between being concise and informative. The summary should include:
-    - The main purpose of the form (e.g., "This is an application for a scholarship...").
-    - Any important entities, organizations, or key conditions already mentioned in the text (e.g., "...offered by ITIDA and NTI...", "...it includes a penalty for absence...").
-    - The general categories of information the user will need to provide (e.g., "...you will be asked for personal, contact, and academic details.").
-    - The goal is to give the user a good sense of the form's context without reading every single word.
-
-2.  **Identify Fillable Fields:** For each numbered box (1, 2, 3, etc.) that represents a place for the user to write:
-    - Find the corresponding text label or description near it.
-    - **Determine if the box is valid based on CONTEXT:** Analyze the label and surrounding text to understand the field's purpose.
-        - A field is **invalid** if the text implies it is for official use, an example, an instruction, or if it already contains a definitive value.
-        - A field is **valid** if its purpose is clearly to capture information from the user (e.g., "Name", "Address", "Signature").
-        - **Checkboxes:** A checkbox is almost always **valid**. Only mark it as invalid if it is clearly not an interactive element.
-    - Keep the label text exactly as it is written in the form, without translation.
-
-3.  **Format your response strictly as a single JSON object with no other text before or after it.**
-
-    ```json
-    {{
-      "explanation": "Your helpful, concise summary in {lang_name}.",
-  "fields": [
-        {{ "id": 1, "label": "Text for box 1", "valid": true }},
-        {{ "id": 2, "label": "Text for box 2", "valid": false }}
-      ]
-    }}
-    ```"""
+                prompt = f"""
+                """
 
             image_part = {"mime_type": "image/png", "data": img_str}
 
@@ -417,43 +357,81 @@ Keep message concise and helpful. Don't be overly strict on minor imperfections.
             # --- Language-Specific Prompts (fields only) ---
             if language == "rtl":
                 prompt = """
-أنت مساعد ذكي متخصص في تحليل النماذج. هدفك هو Identify fillable fields فقط.
+أنت مساعد متخصص في تحليل النماذج من صور. المطلوب: Identify fillable fields فقط.
 
-**Identify fillable fields:** For each numbered box (1، 2، 3، إلخ) represents a place for user input:
-- ابحث عن التسمية النصية أو الوصف المقابل بالقرب منه.
-- **حدد ما إذا كان المربع صالحًا بناءً على السياق:** قم بتحليل التسمية والنص المحيط لفهم الغرض من الحقل.
-    - Field is considered **invalid** إذا كان النص يشير إلى أنه "for official use only"، or example, or just instruction، or if it already contains specific value.
-    - Field is considered **صالحًا** إذا كان غرضه هو الحصول على معلومات من المستخدم بوضوح (مثل: "الاسم"، "العنوان"، "التوقيع").
-    - **مربعات الاختيار:** تكون مربعات الاختيار **صالحة** دائمًا تقريبًا. اجعلها invalidة فقط إذا لم تكن عنصرًا تفاعليًا بشكل واضح.
-- احتفظ بنص التسمية كما هو مكتوب في النموذج تمامًا، دون ترجمة.
+المُدخلات: مجموعة صور للنموذج. كل صورة تحتوي على مربعات تراكب مرقّمة (1، 2، 3، ...)، كل مربع يحدد مكان إدخال المستخدم المراد تحليله.
 
-**تنسيق الإخراج:** يجب أن يكون الإخراج قائمة JSON فقط، بدون أي نص قبله أو بعده.
+التعيين:
+- id = الرقم الظاهر على التراكب كما هو (اعتبر الأرقام العربية/الهندية مكافئة داخليًا، لكن أخرج ما يظهر في الصورة).
+- label: ابحث عن أقرب تسمية نصية للحقل المرتبط بالمربع عبر OCR ضمن النطاق التالي بالترتيب:
+  1) نفس السطر يمين/يسار حدود المربع حتى مسافة ≈ 1–1.5× من ارتفاع المربع.
+  2) حتى سطرين أعلى المربع.
+  3) عناوين/نصوص صغيرة ملاصقة مباشرة فوق الحقل.
+- اختر أقصر نص وصفي ملاصق وواضح كاسم الحقل. لا تُنشئ أو تعدّل النص. احتفظ بالنص كما هو (حروف، تشكيل، ترقيم، مسافات).
+- لو لا توجد تسمية واضحة ضمن النطاق، ضع label = "".
+- إذا وُجد سهم/خط رابط من نص إلى الحقل، أعطه أولوية في تحديد التسمية.
 
-```json
-[
-  { "id": 1, "label": "نص المربع 1", "valid": true },
-  { "id": 2, "label": "نص المربع 2", "valid": false }
-]
-```"""
+قواعد الصلاحية (valid):
+- valid إذا كان الغرض جمع معلومات من المستخدم بوضوح (مثل: "الاسم"، "العنوان"، "التوقيع"، "التاريخ"، "رقم الهوية"، "رقم الهاتف"، "البريد الإلكتروني"...).
+- مربعات الاختيار/الدوائر: valid إذا كانت بجوار وسم وصفي واضح؛ invalid إذا كانت ضمن وسيلة إيضاح/مثال/تعليمات غير تفاعلية.
+- invalid إذا:
+  - النص يشير إلى "للاستخدام الرسمي فقط" أو "Official use only" أو "For office use" أو "Do not write" أو "لا تكتب هنا".
+  - النص هو مثال/تعليمات/ملاحظة: "مثال", "Example", "Sample", "تعليمات", "Instruction", "ملاحظة", "إرشادات", "Note".
+  - الحقل مُعبّأ مسبقًا بقيمة محددة أو يوجد علامة ✓/X في مربع الاختيار.
+- عند الشك اجعل valid = false.
+
+اعتبارات متعددة الصفحات/تكرار الأرقام:
+- إذا تكرر نفس الرقم في صور مختلفة، عالِج كل ظهور كعنصر مستقل. أخرج id كما هو.
+
+الإخراج:
+- JSON Array فقط، بدون أي نص إضافي، مرتبة تصاعديًا حسب id كما يظهر.
+- لكل عنصر: { "id": <number|string كما ظهر>, "label": "<exact label text or empty>", "valid": <true|false> }.
+- لا تضف مفاتيح أخرى. لا تشرح. لا تترجم.
+
+قيود:
+- لا تستنتج تسميات مفقودة.
+- لا تُعدّل علامات الترقيم أو المسافات داخل label.
+- اعتبر الأرقام العربية والهندية مكافئة لغايات المطابقة، لكن أعِد الإخراج كما ظهر في الصورة.
+"""
             else:
-                prompt = """You are an intelligent form assistant. Your goal is to identify fillable fields only.
+                prompt = """
+You are an assistant specialized in analyzing forms from images. Objective: Identify fillable fields only.
 
-**Identify Fillable Fields:** For each numbered box (1, 2, 3, etc.) that represents a place for the user to write:
-- Find the corresponding text label or description near it.
-- **Determine if the box is valid based on CONTEXT:** Analyze the label and surrounding text to understand the field's purpose.
-    - A field is **invalid** if the text implies it is for official use, an example, an instruction, or if it already contains a definitive value.
-    - A field is **valid** if its purpose is clearly to capture information from the user (e.g., "Name", "Address", "Signature").
-    - **Checkboxes:** A checkbox is almost always **valid**. Only mark it as invalid if it is clearly not an interactive element.
-- Keep the label text exactly as it is written in the form, without translation.
+Inputs: A set of images of the form. Each image contains numbered overlay boxes (1, 2, 3, ...), each box indicates a user input location to analyze.
 
-**Format your response strictly as a JSON array with no other text before or after it.**
+Mapping:
 
-```json
-[
-  { "id": 1, "label": "Text for box 1", "valid": true },
-  { "id": 2, "label": "Text for box 2", "valid": false }
-]
-```"""
+- id = the number shown on the overlay as-is (treat Arabic/Indic digits as equivalent internally, but output exactly what appears in the image).
+- label: find the nearest text label for the field associated with the box via OCR within the following scope, in order:
+  1) On the same line to the right/left of the box boundaries up to a distance ≈ 1–1.5× the box height.
+  2) Up to two lines above the box.
+  3) Headings/small texts directly adjacent above the field.
+- Choose the shortest adjacent, descriptive text that is clear as the field name. Do not create or modify text. Keep the text exactly as-is (letters, diacritics, punctuation, spaces).
+- If there is no clear label within the scope, set label = "".
+- If there is an arrow/leader line from text to the field, give it priority when determining the label.
+
+Validity rules (valid):
+- valid if the purpose is clearly to collect information from the user (e.g., "Name", "Address", "Signature", "Date", "ID Number", "Phone Number", "Email"...).
+- Checkboxes/radio buttons: valid if they are next to a clear descriptive label; invalid if they are part of a legend/example/instructions that are not interactive.
+- invalid if:
+ - the text indicates "For official use only" or "Official use only" or "For office use" or "Do not write" or "لا تكتب هنا".
+ - the text is an example/instructions/note: "Example", "Sample", "Instructions", "Note", "تعليمات", "إرشادات", "ملاحظة", "مثال".
+ - the field is pre-filled with a specific value or there is a ✓/X mark in a checkbox.
+-When in doubt, set valid = false.
+
+Multi-page/repeated numbers:
+- If the same number is repeated on different images, treat each occurrence as a separate item. Output id exactly as it appears.
+
+Output:
+- JSON Array only, with no additional text, sorted in ascending order by id as it appears.
+- For each item: { "id": <number|string as shown>, "label": "<exact label text or empty>", "valid": <true|false> }.
+- Do not add other keys. Do not explain. Do not translate.
+
+Constraints:
+- Do not infer missing labels.
+- Do not alter punctuation or spaces within label.
+- Consider Arabic and Indic numerals equivalent for matching purposes, but return the output exactly as it appears in the image.
+"""
 
             image_part = {"mime_type": "image/png", "data": img_str}
 
@@ -478,7 +456,7 @@ Keep message concise and helpful. Don't be overly strict on minor imperfections.
                     candidate_count=1,
                     top_k=1,
                     top_p=0.1,
-                    max_output_tokens=9000,
+                    max_output_tokens=10000,
                 ),
                 safety_settings=safety_settings,
                 stream=False,
