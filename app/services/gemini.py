@@ -203,7 +203,7 @@ English bad: "Image needs improvement. Try: better lighting and straighten the f
                 prompt = """
                 """
             else:
-                prompt = f"""
+                prompt = """
                 """
 
             image_part = {"mime_type": "image/png", "data": img_str}
@@ -537,27 +537,31 @@ Constraints:
 
             if language == "rtl":
                 prompt = """
-أنت مساعد ذكي متخصص في تحليل النماذج. اقرأ النموذج في الصورة وقدم ملخصاً مفيداً وموجزاً باللغة العربية.
+استخرج النص المكتوب داخل صورة النموذج وأعده كما هو تماماً.
 
-يجب أن يشمل الملخص:
-- الغرض الرئيسي للنموذج (مثل: طلب منحة، تقديم طلب، إقرار، etc.)
-- أي جهات أو مؤسسات مذكورة (مثل: جامعات، شركات، وزارات)
-- نوع المعلومات المطلوبة (بيانات شخصية، أكاديمية، مهنية)
-- أي شروط أو ملاحظات مهمة
+قواعد صارمة للإخراج:
+- أعد النص الخام فقط بدون أي شرح أو تفسير أو عناوين.
+- لا تستخدم أي تنسيقات Markdown أو رموز خاصة أو اقتباسات.
+- حافظ على ترتيب السطور والفواصل والمسافات الأصلية كما تظهر في الصورة.
+- لا تضف ترقيمات أو نقاط أو أقواس أو ترجمات أو تصحيحات لغوية.
+- إذا كانت الصفحة متعددة الأعمدة أو الأقسام، حافظ على تخطيط السطور تقريبياً كما هو (مع أسطر فارغة عند الحاجة).
+- إذا لم يظهر نص، أعد سلسلة فارغة فقط.
 
-أجب بشكل مباشر ومفيد في 2-4 جمل فقط. لا تستخدم تنسيقات markdown.
+أعد النص الآن كما هو من الصورة:
 """
             else:
                 prompt = """
-You are an intelligent form assistant. Read the form in the image and provide a helpful, concise summary in English.
+Extract the text written inside the form image and return it exactly as it appears.
 
-The summary should include:
-- The main purpose of the form (e.g., scholarship application, registration, declaration, etc.)
-- Any important organizations or entities mentioned
-- The type of information required (personal, academic, professional data)
-- Any important conditions or notes
+Strict output rules:
+- Return raw text only, with no explanation, labels, or headings.
+- Do not use any Markdown, special symbols, or quotes.
+- Preserve original line breaks, spacing, and order exactly as in the image.
+- Do not add bullets, numbering, brackets, translations, or language fixes.
+- If the page has multiple columns/sections, keep the line layout approximately as-is (use blank lines when appropriate).
+- If no text is visible, return an empty string only.
 
-Respond directly and helpfully in 2-4 sentences only. Do not use markdown formatting.
+Now return the text from the image exactly as-is:
 """
 
             image_part = {"mime_type": "image/png", "data": img_str}
@@ -634,8 +638,8 @@ Respond directly and helpfully in 2-4 sentences only. Do not use markdown format
                     )
                     return fallback_msg
 
-                explanation = self.remove_markdown_formatting(response_text.strip())
-                logger.info(f"Form explanation generated: {explanation[:100]}...")
+                explanation = response_text.strip()
+                logger.info(f"Form text extracted: {explanation[:100]}...")
                 return explanation
 
             except Exception:
@@ -654,8 +658,8 @@ Respond directly and helpfully in 2-4 sentences only. Do not use markdown format
                     else "Quick summary: This is a form. You can proceed to analysis to extract fields."
                 )
 
-            explanation = self.remove_markdown_formatting(response.text.strip())
-            logger.info(f"Form explanation generated: {explanation[:100]}...")
+            explanation = response.text.strip()
+            logger.info(f"Form text extracted: {explanation[:100]}...")
             return explanation
 
         except Exception as e:
