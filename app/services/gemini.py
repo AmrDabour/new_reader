@@ -359,6 +359,10 @@ English bad: "Image needs improvement. Try: better lighting and straighten the f
                 prompt = """
 أنت مساعد متخصص في تحليل النماذج من صور. المطلوب: Identify fillable fields فقط.
 
+**فحص أولي مهم:**
+- إذا كانت الصورة تُظهر ورقة بيضاء أو فارغة أو تحتوي على نص قليل جداً بدون حقول واضحة، اكتب في JSON: [{"id": "flip_form", "label": "يرجى قلب النموذج على الجهة الأخرى وتصويره مرة أخرى", "valid": false}]
+- إذا كانت الصورة تحتوي على نموذج واضح بحقول قابلة للتعبئة، تابع التحليل العادي.
+
 المُدخلات: مجموعة صور للنموذج. كل صورة تحتوي على مربعات تراكب مرقّمة (1، 2، 3، ...)، كل مربع يحدد مكان إدخال المستخدم المراد تحليله.
 
 التعيين:
@@ -396,6 +400,10 @@ English bad: "Image needs improvement. Try: better lighting and straighten the f
             else:
                 prompt = """
 You are an assistant specialized in analyzing forms from images. Objective: Identify fillable fields only.
+
+**Important Initial Check:**
+- If the image shows a blank/white paper or contains very little text without clear fillable fields, output in JSON: [{"id": "flip_form", "label": "Please flip the form to the other side and take a photo again", "valid": false}]
+- If the image contains a clear form with fillable fields, proceed with normal analysis.
 
 Inputs: A set of images of the form. Each image contains numbered overlay boxes (1, 2, 3, ...), each box indicates a user input location to analyze.
 
@@ -451,15 +459,7 @@ Constraints:
 
             response = self.model.generate_content(
                 [prompt, image_part],
-                generation_config=genai.GenerationConfig(
-                    temperature=0,
-                    candidate_count=1,
-                    top_k=1,
-                    top_p=0.1,
-                    max_output_tokens=30000,
-                ),
                 safety_settings=safety_settings,
-                stream=False,
             )
             try:
                 if hasattr(response, "candidates") and response.candidates:
