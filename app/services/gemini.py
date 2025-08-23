@@ -79,15 +79,17 @@ Analyze the uploaded image and respond ONLY in this JSON format:
   "quality_message": "Brief assessment and tips in detected language"
 }
 
-Quality rules:
-- ACCEPTABLE (ok=true): Text mostly readable, form fields visible, minor lighting/tilt OK.
-- NEEDS IMPROVEMENT (ok=false): Cropped too much, very blurry, major rotation, very dark.
+Quality rules - BE VERY LENIENT:
+- ACCEPTABLE (ok=true): Any image where text is somewhat visible, form structure can be made out, even with poor lighting, tilt, blur, or cropping. Accept unless completely unreadable.
+- REJECT ONLY (ok=false): Completely black/white images, extremely corrupted files, or images where absolutely nothing can be identified.
 
 Examples:
-Arabic good: "الصورة واضحة ومناسبة للتحليل"
-Arabic bad: "الصورة تحتاج تحسين. حاول ضبط الإضاءة وتعديل الميلان"
-English good: "Image is clear and suitable for analysis"
-English bad: "Image needs improvement. Try: better lighting and straighten the form"
+Arabic good: "الصورة مقبولة للتحليل"
+Arabic acceptable: "الصورة مقبولة رغم الإضاءة الضعيفة"
+English good: "Image is acceptable for analysis"
+English acceptable: "Image is usable despite lighting issues"
+
+IMPORTANT: Default to quality_good=true unless image is completely unusable. Be very forgiving with image quality.
 
 """
 
@@ -1452,9 +1454,11 @@ Respond with valid JSON only, without any additional text, warnings, or disclaim
   "message": "رسالة قصيرة عن جودة الصورة"
 }
 
-معايير الجودة:
-- جيدة: النص واضح ومقروء، الهيكل مرئي
-- سيئة: ضبابية، مظلمة/مضيئة جداً، نص غير مقروء
+معايير الجودة - كن متساهلاً:
+- مقبولة: أي صورة يمكن رؤية محتوى فيها ولو بشكل ضعيف
+- غير مقبولة: فقط الصور السوداء أو البيضاء تماماً أو التالفة كلياً
+
+اجعل quality_good=true في معظم الحالات.
 """
             else:
                 prompt = """
@@ -1466,9 +1470,11 @@ Respond with JSON only:
   "message": "Brief message about image quality"
 }
 
-Quality criteria:
-- Good: Text clearly readable, structure visible
-- Bad: Blurry, too dark/bright, unreadable text
+Quality criteria - BE LENIENT:
+- Acceptable: Any image where some content is visible, even if poor quality
+- Unacceptable: Only completely black/white or totally corrupted images
+
+Set quality_good=true in most cases.
 """
 
             image_part = {"mime_type": "image/png", "data": img_str}
@@ -1516,9 +1522,9 @@ Quality criteria:
 
 قيم جودة هذه الصورة لتحليل النماذج واكتب ردك باللغة العربية فقط.
 
-**معايير التقييم:**
-- مقبول: مشاكل إضاءة بسيطة، ميلان خفيف، النص مقروء
-- يحتاج تحسين: الصورة مقطوعة بشكل كبير، النص مشوش جداً، ميلان شديد، إضاءة سيئة جداً
+**معايير التقييم - كن متساهلاً جداً:**
+- مقبول: أي صورة يمكن رؤية النص أو الهيكل فيها ولو بشكل ضعيف، حتى مع وجود مشاكل في الإضاءة أو الميلان أو الوضوح
+- غير مقبول فقط: الصور السوداء تماماً أو البيضاء تماماً أو التالفة بشكل كامل
 
 أرجع JSON فقط:
 
@@ -1530,11 +1536,11 @@ Quality criteria:
 ```
 
 أمثلة للرسائل:
-- "الصورة واضحة ومناسبة للتحليل"
-- "الصورة مقبولة. نصيحة: حسن الإضاءة قليلاً"
-- "الصورة تحتاج تحسين. جرب: إضاءة أفضل وتعديل زاوية التصوير"
+- "الصورة مقبولة للتحليل"
+- "الصورة صالحة رغم ضعف الإضاءة"
+- "الصورة قابلة للاستخدام"
 
-لا تكن صارماً جداً على العيوب الصغيرة.
+مهم: اجعل quality_good=true إلا إذا كانت الصورة غير قابلة للاستخدام نهائياً. كن متساهلاً جداً.
 """
             else:
                 prompt = """
@@ -1542,9 +1548,9 @@ Assess image quality for English form analysis:
 
 Evaluate this image for form analysis and respond in English only.
 
-**Assessment Criteria:**
-- ACCEPTABLE: Minor lighting issues, slight tilt, readable text
-- NEEDS IMPROVEMENT: Significantly cropped, very blurry text, major rotation, very poor lighting
+**Assessment Criteria - BE VERY LENIENT:**
+- ACCEPTABLE: Any image where text or structure is somewhat visible, even with poor lighting, tilt, blur, or cropping
+- REJECT ONLY: Completely black/white images, extremely corrupted files, or completely unidentifiable content
 
 Return JSON only:
 
@@ -1556,11 +1562,11 @@ Return JSON only:
 ```
 
 Example messages:
-- "Image is clear and suitable for analysis"
-- "Image is acceptable. Tip: improve lighting slightly"
-- "Image needs improvement. Try: better lighting and straighten the form"
+- "Image is acceptable for analysis"
+- "Image is usable despite poor lighting"
+- "Image quality is sufficient for processing"
 
-Don't be overly strict on minor imperfections.
+IMPORTANT: Set quality_good=true unless image is completely unusable. Be very forgiving with quality issues.
 """
 
             image_part = {"mime_type": "image/png", "data": img_str}
