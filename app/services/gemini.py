@@ -114,7 +114,7 @@ English bad: "Image needs improvement. Try: better lighting and straighten the f
                     candidate_count=1,
                     top_k=1,
                     top_p=0.1,
-                    max_output_tokens=1000,
+                    max_output_tokens=5000,
                 ),
                 safety_settings=safety_settings,
                 stream=False,
@@ -229,7 +229,7 @@ English bad: "Image needs improvement. Try: better lighting and straighten the f
                     candidate_count=1,
                     top_k=1,
                     top_p=0.1,
-                    max_output_tokens=9000,
+                    max_output_tokens=30000,
                 ),
                 safety_settings=safety_settings,
                 stream=False,
@@ -456,7 +456,7 @@ Constraints:
                     candidate_count=1,
                     top_k=1,
                     top_p=0.1,
-                    max_output_tokens=10000,
+                    max_output_tokens=30000,
                 ),
                 safety_settings=safety_settings,
                 stream=False,
@@ -583,7 +583,7 @@ Now return the text from the image exactly as-is:
             response = self.model.generate_content(
                 [prompt, image_part],
                 generation_config=genai.GenerationConfig(
-                    temperature=0.2, candidate_count=1, max_output_tokens=9000
+                    temperature=0.2, candidate_count=1, max_output_tokens=25000
                 ),
                 safety_settings=safety_settings,
                 stream=False,
@@ -1586,7 +1586,7 @@ Don't be overly strict on minor imperfections.
                     candidate_count=1,
                     top_k=1,
                     top_p=0.1,
-                    max_output_tokens=1000,
+                    max_output_tokens=3000,
                 ),
                 safety_settings=safety_settings,
                 stream=False,
