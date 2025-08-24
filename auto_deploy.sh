@@ -81,6 +81,83 @@ install_system_deps() {
     print_status "System dependencies installed successfully!"
 }
 
+# Function to cleanup GPU libraries
+cleanup_gpu_libraries() {
+    print_status "Cleaning up GPU libraries and processes..."
+    
+    # Stop any GPU-related processes
+    sudo pkill -f "nvidia" || true
+    sudo pkill -f "cuda" || true
+    sudo pkill -f "cudnn" || true
+    
+    # Wait for processes to stop
+    sleep 3
+    
+    # Force unmount any mounted GPU libraries
+    sudo umount /proc/driver/nvidia 2>/dev/null || true
+    
+    print_status "GPU cleanup completed!"
+}
+
+# Function to force cleanup stubborn directories
+force_cleanup() {
+    local target_dir="$1"
+    
+    if [ ! -d "$target_dir" ]; then
+        return 0
+    fi
+    
+    print_warning "Force cleaning up: $target_dir"
+    
+    # Try multiple cleanup strategies
+    for strategy in 1 2 3; do
+        case $strategy in
+            1)
+                # Strategy 1: Standard removal
+                if rm -rf "$target_dir" 2>/dev/null; then
+                    print_status "Standard removal successful"
+                    return 0
+                fi
+                ;;
+            2)
+                # Strategy 2: Sudo removal
+                if sudo rm -rf "$target_dir" 2>/dev/null; then
+                    print_status "Sudo removal successful"
+                    return 0
+                fi
+                ;;
+            3)
+                # Strategy 3: Force removal of problematic subdirectories
+                print_warning "Attempting force removal of problematic subdirectories..."
+                
+                # Remove known problematic directories first
+                sudo find "$target_dir" -type d -name "nvidia" -exec rm -rf {} + 2>/dev/null || true
+                sudo find "$target_dir" -type d -name "cudnn" -exec rm -rf {} + 2>/dev/null || true
+                sudo find "$target_dir" -type d -name "cuda" -exec rm -rf {} + 2>/dev/null || true
+                sudo find "$target_dir" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+                
+                # Try sudo removal again
+                if sudo rm -rf "$target_dir" 2>/dev/null; then
+                    print_status "Force removal successful"
+                    return 0
+                fi
+                ;;
+        esac
+        
+        sleep 1
+    done
+    
+    # If all strategies failed, try to rename the directory
+    print_warning "All removal strategies failed, attempting to rename directory..."
+    if sudo mv "$target_dir" "${target_dir}_old_$(date +%s)" 2>/dev/null; then
+        print_status "Directory renamed successfully"
+        return 0
+    fi
+    
+    print_error "Failed to clean up: $target_dir"
+    return 1
+}
+
 # Function to setup repository
 setup_repository() {
     print_header "Setting Up Repository"
@@ -88,6 +165,12 @@ setup_repository() {
     if [ -d "new_reader" ]; then
         print_warning "Repository already exists. Updating..."
         cd new_reader
+        
+        # Clean up problematic directories before git operations
+        force_cleanup "__pycache__"
+        force_cleanup ".pytest_cache"
+        force_cleanup "*.egg-info"
+        
         git pull origin main || git pull origin master
     else
         print_status "Cloning repository..."
@@ -105,7 +188,14 @@ setup_virtual_env() {
     # Remove existing virtual environment if it exists
     if [ -d "venv" ]; then
         print_warning "Removing existing virtual environment..."
-        rm -rf venv
+        
+        # Stop any processes that might be using the venv
+        sudo pkill -f "venv/bin/python" || true
+        sudo pkill -f "venv/bin/uvicorn" || true
+        sleep 2
+        
+        # Use force cleanup function
+        force_cleanup "venv"
     fi
 
     # Create new virtual environment
@@ -340,6 +430,7 @@ main() {
 
     # Run deployment steps
     install_system_deps
+    cleanup_gpu_libraries # Call the new function here
     setup_repository
     setup_virtual_env
     setup_environment
