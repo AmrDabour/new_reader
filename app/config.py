@@ -2,16 +2,20 @@ from pydantic_settings import BaseSettings
 from functools import lru_cache
 import os
 
+
 def get_default_base_url() -> str:
     """Determine default URL based on runtime environment"""
     # Check for GitHub CodeSpaces environment variables
     if os.getenv("CODESPACES") == "true":
         codespace_name = os.getenv("CODESPACE_NAME", "")
         if codespace_name:
-            return f"https://{codespace_name}-{os.getenv('PORT', '10000')}.app.github.dev"
-    
+            return (
+                f"https://{codespace_name}-{os.getenv('PORT', '10000')}.app.github.dev"
+            )
+
     # Default value for local development
     return "http://localhost:10000"
+
 
 class Settings(BaseSettings):
     # Base URL for the application
@@ -36,11 +40,15 @@ class Settings(BaseSettings):
 
     # AI Analysis settings
     gemini_model: str = "gemini-2.5-flash"  # Unified model for all Gemini operations
-    gemini_tts_model: str = "gemini-2.5-flash-preview-tts"  # Specialized model for text-to-speech
+    gemini_tts_model: str = (
+        "gemini-2.5-flash-preview-tts"  # Specialized model for text-to-speech
+    )
 
     # Image processing settings
     image_quality: int = 2  # Scale factor for PDF rendering
-    max_image_size: int = 1920  # Maximum width/height for images
+    max_image_size: int = (
+        4096  # Maximum width/height for images (increased from 1920 for better form analysis quality)
+    )
 
     class Config:
         # Pydantic will automatically look for environment variables
@@ -55,6 +63,7 @@ class Settings(BaseSettings):
         if not self.base_url:
             self.base_url = get_default_base_url()
 
+
 @lru_cache()
 def get_settings():
-    return Settings() 
+    return Settings()

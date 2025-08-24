@@ -197,7 +197,7 @@ PORT=10000
 GEMINI_MODEL=gemini-2.5-flash
 MAX_FILE_SIZE_MB=50
 IMAGE_QUALITY=2
-MAX_IMAGE_SIZE=1920
+MAX_IMAGE_SIZE=4096
 ```
 
 ## 🏃‍♂️ تشغيل التطبيق

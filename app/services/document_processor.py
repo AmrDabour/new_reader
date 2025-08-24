@@ -354,7 +354,7 @@ class DocumentProcessor:
         """Convert PIL image to base64"""
         try:
             # Resize image if too large
-            max_size = 1920
+            max_size = 4096  # Increased from 1920 for better quality
             if image.width > max_size or image.height > max_size:
                 image.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
 
